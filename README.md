@@ -137,6 +137,7 @@ node tool/build_places.mjs cities15000.txt GE.txt
 - Map data © OpenStreetMap contributors (ODbL), [OpenTopoMap](https://opentopomap.org/about) (CC BY-SA). Base map addresses are in `lib/geo_map.dart`.
 - Places: GeoNames (CC BY 4.0). Country names: Unicode CLDR.
 - Font: Noto Sans Georgian (SIL OFL).
+- Font: Roboto, reduced to Latin, Greek, Cyrillic and punctuation (Apache 2.0, `assets/fonts/Roboto_LICENSE.txt`).
 
 ## License
 

@@ -17,20 +17,51 @@
   <style>
     html, body { height: 100%; margin: 0; background: #fff; }
     @media (prefers-color-scheme: dark) { html, body { background: #121212; } }
-    #loading { height: 100%; display: flex; align-items: center; justify-content: center; }
-    #loading div {
+    #loading {
+      height: 100%; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px;
+      align-items: center; justify-content: center; text-align: center;
+      font-family: system-ui, sans-serif; color: #222;
+    }
+    @media (prefers-color-scheme: dark) { #loading { color: #eee; } }
+    #spinner {
       width: 44px; height: 44px; border-radius: 50%;
       border: 4px solid #00796B33; border-top-color: #00796B;
       animation: spin 1s linear infinite;
+    }
+    #stuck { display: none; max-width: 28rem; line-height: 1.5; }
+    #stuck p { margin: 0 0 12px; }
+    #stuck button {
+      padding: 10px 20px; border: 0; border-radius: 20px; background: #00796B; color: #fff;
+      font: inherit; cursor: pointer;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
   <!-- Shown while the app downloads on a phone's first visit. -->
-  <div id="loading"><div></div></div>
+  <div id="loading">
+    <div id="spinner"></div>
+    <!-- Shown if the app still hasn't drawn anything. Plain HTML, so it works when the app can't start. -->
+    <div id="stuck">
+      <p lang="ka">აპი ჯერ არ ჩაიტვირთა. შეამოწმე ინტერნეტი და სცადე თავიდან ჩატვირთვა. თუ ბრაუზერში რეკლამის ან თვალთვალის დაცვა გაქვს ჩართული (მაგალითად, Brave Shields), გამორთე ამ საიტისთვის.</p>
+      <p lang="en">The app hasn't loaded yet. Check your connection and try loading it again. If your browser has ad or tracking protection on (such as Brave Shields), turn it off for this site.</p>
+      <button id="retry" type="button">თავიდან ჩატვირთვა · Load again</button>
+    </div>
+  </div>
   <script>
-    window.addEventListener('flutter-first-frame', () => document.getElementById('loading').remove());
+    window.addEventListener('flutter-first-frame', () => document.getElementById('loading')?.remove());
+    setTimeout(() => {
+      const stuck = document.getElementById('stuck');
+      if (stuck) stuck.style.display = 'block';
+    }, 20000);
+    // Answers waiting to be sent are in the app's own storage, which this doesn't touch.
+    document.getElementById('retry').addEventListener('click', async () => {
+      try {
+        for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+        for (const key of await caches.keys()) await caches.delete(key);
+      } catch (_) {}
+      location.reload();
+    });
   </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>

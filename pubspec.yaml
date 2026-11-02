@@ -75,6 +75,10 @@ flutter:
         - asset: assets/fonts/NotoSansGeorgian-Regular.ttf
         - asset: assets/fonts/NotoSansGeorgian-Bold.ttf
           weight: 700
+    # Flutter web downloads Roboto from Google unless the app has its own. Also supplies ′ and ″.
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/Roboto-Regular.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:
