@@ -26,8 +26,8 @@ class NoConnection implements Exception {}
 
 class Polled {
   final SessionInfo session;
-  final List<TravelAnswer>? answers; // null when nothing changed
-  Polled(this.session, this.answers);
+  final List<Map<String, dynamic>>? rows; // null when nothing changed
+  Polled(this.session, this.rows);
 }
 
 class Api {
@@ -76,8 +76,12 @@ class Api {
     return [for (final s in data['sessions'] as List) SessionInfo.fromJson(s as Map<String, dynamic>)];
   }
 
-  Future<(SessionInfo, String)> createSession(String name, String game) async {
-    final data = await _send('POST', 'sessions', {'name': name, 'game': game});
+  Future<(SessionInfo, String)> createSession(String name, String game, {List<CoordTask>? tasks}) async {
+    final data = await _send('POST', 'sessions', {
+      'name': name,
+      'game': game,
+      if (tasks != null) 'tasks': [for (final t in tasks) t.toJson()],
+    });
     return (SessionInfo.fromJson(data['session'] as Map<String, dynamic>), data['token'] as String);
   }
 
@@ -90,9 +94,7 @@ class Api {
     final data = await _send('GET', 'sessions/$id/responses${rev == null ? '' : '?rev=$rev'}');
     final session = SessionInfo.fromJson(data['session'] as Map<String, dynamic>);
     if (data['changed'] != true) return Polled(session, null);
-    return Polled(session, [
-      for (final r in data['responses'] as List) TravelAnswer.fromJson(r as Map<String, dynamic>),
-    ]);
+    return Polled(session, (data['responses'] as List).cast<Map<String, dynamic>>());
   }
 
   Future<void> setHidden(String responseId, bool hidden) => _send('PATCH', 'responses/$responseId', {'hidden': hidden});

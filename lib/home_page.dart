@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'api.dart';
+import 'coordinates_setup_page.dart';
 import 'l10n.dart';
 import 'models.dart';
 import 'session_page.dart';
@@ -146,46 +147,76 @@ class _SessionListState extends State<_SessionList> {
 
   Future<void> _open(SessionInfo session, {bool showQr = false}) async {
     await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => SessionPage(settings: widget.settings, session: session, showQrOnOpen: showQr),
+      builder: (_) => sessionPageFor(widget.settings, session, showQr: showQr),
     ));
     _load();
   }
 
   Future<void> _create() async {
     final ctl = TextEditingController();
+    var game = 'travel';
     final name = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(s['new_session']),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(s['game_travel'], style: Theme.of(ctx).textTheme.titleSmall),
-            const SizedBox(height: 12),
-            TextField(
-              controller: ctl,
-              autofocus: true,
-              maxLength: 100,
-              decoration: InputDecoration(
-                labelText: s['session_name'],
-                hintText: s['session_name_hint'],
-                border: const OutlineInputBorder(),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) => AlertDialog(
+          title: Text(s['new_session']),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(s['game_choose'], style: Theme.of(ctx).textTheme.titleSmall),
+              const SizedBox(height: 8),
+              RadioGroup<String>(
+                groupValue: game,
+                onChanged: (v) => setDialog(() => game = v!),
+                child: Column(
+                  children: [
+                    for (final g in const ['travel', 'coordinates'])
+                      RadioListTile<String>(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        value: g,
+                        title: Text(s['game_$g']),
+                      ),
+                  ],
+                ),
               ),
-              onSubmitted: (v) => Navigator.pop(ctx, v),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ctl,
+                autofocus: true,
+                maxLength: 100,
+                decoration: InputDecoration(
+                  labelText: s['session_name'],
+                  hintText: s['session_name_hint'],
+                  border: const OutlineInputBorder(),
+                ),
+                onSubmitted: (v) => Navigator.pop(ctx, v),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s['cancel'])),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, ctl.text),
+              child: Text(game == 'coordinates' ? s['next'] : s['create']),
             ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s['cancel'])),
-          FilledButton(onPressed: () => Navigator.pop(ctx, ctl.text), child: Text(s['create'])),
-        ],
       ),
     );
     ctl.dispose();
-    if (name == null || name.trim().isEmpty) return;
+    if (name == null || name.trim().isEmpty || !mounted) return;
+
+    List<CoordTask>? tasks;
+    if (game == 'coordinates') {
+      tasks = await Navigator.of(context).push<List<CoordTask>>(MaterialPageRoute(
+        builder: (_) => CoordinatesSetupPage(s: s),
+      ));
+      if (tasks == null) return;
+    }
     try {
-      final (session, token) = await _api.createSession(name.trim(), 'travel');
+      final (session, token) = await _api.createSession(name.trim(), game, tasks: tasks);
       await widget.settings.setToken(session.id, token);
       await _open(session, showQr: true);
     } on Exception catch (e) {
@@ -265,9 +296,10 @@ class _SessionListState extends State<_SessionList> {
                           for (final x in visible)
                             Card(
                               child: ListTile(
-                                leading: const Icon(Icons.travel_explore),
+                                leading: Icon(x.game == 'coordinates' ? Icons.my_location : Icons.travel_explore),
                                 title: Text(x.name),
                                 subtitle: Text([
+                                  s['game_${x.game}'],
                                   s['status_${x.status}'],
                                   s.f('answers_count', [x.responses ?? 0]),
                                   if (x.archived) s['archived'],

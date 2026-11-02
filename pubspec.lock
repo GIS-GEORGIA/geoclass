@@ -537,7 +537,7 @@ packages:
     source: hosted
     version: "6.5.4"
   proj4dart:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: proj4dart
       sha256: ddcedc1f7876e62717de43ab3491e2829bdad0b028261805f94aa080967e5859

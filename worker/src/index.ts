@@ -1,6 +1,6 @@
-import { HttpError, validateAnswer } from './validate';
+import { HttpError, distanceM, scoreFor, validateAnswer, validateTasks, type Task } from './validate';
 
-const MAX_RESPONSES_PER_SESSION = 500;
+const MAX_RESPONSES_PER_SESSION = 2000;
 const MAX_BODY_BYTES = 8 * 1024;
 const MAX_RESTORE_BYTES = 4 * 1024 * 1024;
 const D1_BATCH_SIZE = 50;
@@ -56,10 +56,12 @@ type SessionRow = {
   status: string;
   rev: number;
   archived: number;
+  settings: string;
   created_at: number;
 };
 
-const SESSION_COLUMNS = 'id, name, game, status, rev, archived, created_at';
+const SESSION_COLUMNS = 'id, name, game, status, rev, archived, settings, created_at';
+const GAMES = ['travel', 'coordinates'];
 
 function sessionJson(s: SessionRow, count?: number) {
   return {
@@ -69,6 +71,7 @@ function sessionJson(s: SessionRow, count?: number) {
     status: s.status,
     rev: s.rev,
     archived: s.archived === 1,
+    settings: JSON.parse(s.settings),
     createdAt: s.created_at,
     ...(count === undefined ? {} : { responses: count }),
   };
@@ -78,9 +81,12 @@ type ResponseRow = {
   id: string;
   session_id: string;
   participant_id: string;
+  round: number;
   answer: string;
   lat: number;
   lon: number;
+  distance_m: number | null;
+  score: number | null;
   hidden: number;
   created_at: number;
 };
@@ -90,9 +96,12 @@ function responseJson(r: ResponseRow) {
     id: r.id,
     sessionId: r.session_id,
     participantId: r.participant_id,
+    round: r.round,
     answer: JSON.parse(r.answer),
     lat: r.lat,
     lon: r.lon,
+    distanceM: r.distance_m,
+    score: r.score,
     hidden: r.hidden === 1,
     createdAt: r.created_at,
   };
@@ -127,7 +136,7 @@ const bumpRev = (env: Env, id: string) => env.DB.prepare('UPDATE sessions SET re
 async function join(env: Env, request: Request): Promise<Response> {
   const { token } = await readBody<{ token?: unknown }>(request);
   const s = await sessionByToken(env, token);
-  return json({ name: s.name, game: s.game, status: s.status });
+  return json({ name: s.name, game: s.game, status: s.status, settings: JSON.parse(s.settings) });
 }
 
 async function submit(env: Env, request: Request): Promise<Response> {
@@ -141,6 +150,7 @@ async function submit(env: Env, request: Request): Promise<Response> {
     answer?: unknown;
     lat?: unknown;
     lon?: unknown;
+    round?: unknown;
   }>(request);
   const s = await sessionByToken(env, body.token);
 
@@ -166,6 +176,22 @@ async function submit(env: Env, request: Request): Promise<Response> {
     .first<{ n: number }>();
   if ((count?.n ?? 0) >= MAX_RESPONSES_PER_SESSION) throw new HttpError(429, 'session_full');
 
+  if (s.game === 'coordinates') {
+    const tasks = (JSON.parse(s.settings) as { tasks: Task[] }).tasks;
+    const task = typeof body.round === 'number' ? tasks[body.round] : undefined;
+    if (!task) throw new HttpError(400, 'bad_round');
+    const distance = distanceM(lat, lon, task.lat, task.lon);
+    // The first try counts: the correct point is shown right after it.
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO responses (id, session_id, participant_id, round, answer, lat, lon, distance_m, score, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(submissionId, s.id, participantId, body.round, JSON.stringify(answer), lat, lon, distance, scoreFor(distance), nowSec()),
+      bumpRev(env, s.id),
+    ]);
+    return json({ ok: true, duplicate: false }, 201);
+  }
+
   // One answer per student: sending again replaces the earlier one.
   await env.DB.batch([
     env.DB.prepare('DELETE FROM responses WHERE session_id = ? AND participant_id = ?').bind(s.id, participantId),
@@ -189,13 +215,14 @@ async function listSessions(env: Env): Promise<Response> {
 }
 
 async function createSession(env: Env, request: Request): Promise<Response> {
-  const body = await readBody<{ name?: unknown; game?: unknown }>(request);
+  const body = await readBody<{ name?: unknown; game?: unknown; tasks?: unknown }>(request);
   const name = cleanName(body.name);
-  if (body.game !== 'travel') throw new HttpError(400, 'bad_game');
+  if (typeof body.game !== 'string' || !GAMES.includes(body.game)) throw new HttpError(400, 'bad_game');
+  const settings = body.game === 'coordinates' ? { tasks: validateTasks(body.tasks) } : {};
   const id = crypto.randomUUID();
   const token = randomToken();
-  await env.DB.prepare('INSERT INTO sessions (id, name, game, token_hash, created_at) VALUES (?, ?, ?, ?, ?)')
-    .bind(id, name, body.game, await sha256(token), nowSec())
+  await env.DB.prepare('INSERT INTO sessions (id, name, game, token_hash, settings, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(id, name, body.game, await sha256(token), JSON.stringify(settings), nowSec())
     .run();
   return json({ session: sessionJson(await sessionOr404(env, id), 0), token }, 201);
 }
@@ -250,7 +277,12 @@ async function listResponses(env: Env, url: URL, id: string): Promise<Response> 
 
 async function resetResponses(env: Env, id: string): Promise<Response> {
   await sessionOr404(env, id);
-  await env.DB.batch([env.DB.prepare('DELETE FROM responses WHERE session_id = ?').bind(id), bumpRev(env, id)]);
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM responses WHERE session_id = ?').bind(id),
+    // Tells students' devices to forget their progress in the game.
+    env.DB.prepare("UPDATE sessions SET settings = json_set(settings, '$.resetAt', unixepoch()) WHERE id = ?").bind(id),
+    bumpRev(env, id),
+  ]);
   return json({ ok: true });
 }
 
@@ -285,18 +317,19 @@ async function backup(env: Env, url: URL): Promise<Response> {
     : await env.DB.prepare('SELECT * FROM responses ORDER BY created_at').all<ResponseRow>();
   return json({
     format: 'geoclass-backup',
-    version: 1,
+    version: 2,
     exportedAt: nowSec(),
     sessions: sessions.results.map((s) => sessionJson(s)),
     responses: responses.results.map(responseJson),
   });
 }
 
-type BackupSession = { id?: unknown; name?: unknown; game?: unknown; archived?: unknown; createdAt?: unknown };
+type BackupSession = { id?: unknown; name?: unknown; game?: unknown; archived?: unknown; settings?: { tasks?: unknown }; createdAt?: unknown };
 type BackupResponse = {
   id?: unknown;
   sessionId?: unknown;
   participantId?: unknown;
+  round?: unknown;
   answer?: unknown;
   lat?: unknown;
   lon?: unknown;
@@ -304,35 +337,52 @@ type BackupResponse = {
   createdAt?: unknown;
 };
 
+function restoredTasks(raw: unknown): Task[] {
+  try {
+    return validateTasks(raw);
+  } catch {
+    throw new HttpError(400, 'bad_backup');
+  }
+}
+
 async function restore(env: Env, request: Request): Promise<Response> {
   const data = await readBody<{ format?: unknown; version?: unknown; sessions?: BackupSession[]; responses?: BackupResponse[] }>(
     request,
     MAX_RESTORE_BYTES,
   );
-  if (data.format !== 'geoclass-backup' || data.version !== 1 || !Array.isArray(data.sessions) || !Array.isArray(data.responses)) {
+  if (data.format !== 'geoclass-backup' || (data.version !== 1 && data.version !== 2) || !Array.isArray(data.sessions) || !Array.isArray(data.responses)) {
     throw new HttpError(400, 'bad_backup');
   }
 
   // Everything is validated first, so a bad file changes nothing.
-  const sessionIds = new Set<string>();
+  const games = new Map<string, { game: string; tasks: Task[] }>();
   const statements: D1PreparedStatement[] = [];
   for (const s of data.sessions) {
-    if (typeof s.id !== 'string' || !ID_RE.test(s.id) || s.game !== 'travel' || typeof s.createdAt !== 'number') {
+    if (typeof s.id !== 'string' || !ID_RE.test(s.id) || typeof s.game !== 'string' || !GAMES.includes(s.game) || typeof s.createdAt !== 'number') {
       throw new HttpError(400, 'bad_backup');
     }
-    sessionIds.add(s.id);
+    const tasks = s.game === 'coordinates' ? restoredTasks(s.settings?.tasks) : [];
+    games.set(s.id, { game: s.game, tasks });
     statements.push(
       env.DB.prepare(
-        "INSERT OR IGNORE INTO sessions (id, name, game, status, token_hash, archived, created_at) VALUES (?, ?, ?, 'closed', ?, ?, ?)",
-      ).bind(s.id, cleanName(s.name), s.game, await sha256(randomToken()), s.archived === true ? 1 : 0, s.createdAt),
+        "INSERT OR IGNORE INTO sessions (id, name, game, status, token_hash, archived, settings, created_at) VALUES (?, ?, ?, 'closed', ?, ?, ?, ?)",
+      ).bind(
+        s.id,
+        cleanName(s.name),
+        s.game,
+        await sha256(randomToken()),
+        s.archived === true ? 1 : 0,
+        JSON.stringify(s.game === 'coordinates' ? { tasks } : {}),
+        s.createdAt,
+      ),
     );
   }
   for (const r of data.responses) {
+    const session = typeof r.sessionId === 'string' ? games.get(r.sessionId) : undefined;
     const valid =
       typeof r.id === 'string' &&
       ID_RE.test(r.id) &&
-      typeof r.sessionId === 'string' &&
-      sessionIds.has(r.sessionId) &&
+      session !== undefined &&
       typeof r.participantId === 'string' &&
       ID_RE.test(r.participantId) &&
       typeof r.lat === 'number' &&
@@ -341,19 +391,37 @@ async function restore(env: Env, request: Request): Promise<Response> {
       Math.abs(r.lon) <= 180 &&
       typeof r.createdAt === 'number';
     if (!valid) throw new HttpError(400, 'bad_backup');
-    const answer = validateAnswer('travel', r.answer);
+    const answer = validateAnswer(session.game, r.answer);
+    const round = session.game === 'coordinates' ? r.round : 0;
+    const task = session.game === 'coordinates' && typeof round === 'number' ? session.tasks[round] : undefined;
+    if (session.game === 'coordinates' && !task) throw new HttpError(400, 'bad_backup');
+    // Scores are worked out again, so an edited file can't change them.
+    const distance = task ? distanceM(r.lat as number, r.lon as number, task.lat, task.lon) : null;
     statements.push(
       env.DB.prepare(
-        'INSERT OR IGNORE INTO responses (id, session_id, participant_id, answer, lat, lon, hidden, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      ).bind(r.id, r.sessionId, r.participantId, JSON.stringify(answer), r.lat, r.lon, r.hidden === true ? 1 : 0, r.createdAt),
+        `INSERT OR IGNORE INTO responses (id, session_id, participant_id, round, answer, lat, lon, distance_m, score, hidden, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        r.id as string,
+        r.sessionId as string,
+        r.participantId as string,
+        round as number,
+        JSON.stringify(answer),
+        r.lat as number,
+        r.lon as number,
+        distance,
+        distance === null ? null : scoreFor(distance),
+        r.hidden === true ? 1 : 0,
+        r.createdAt as number,
+      ),
     );
   }
 
-  for (const id of sessionIds) statements.push(bumpRev(env, id));
+  for (const id of games.keys()) statements.push(bumpRev(env, id));
   for (let i = 0; i < statements.length; i += D1_BATCH_SIZE) {
     await env.DB.batch(statements.slice(i, i + D1_BATCH_SIZE));
   }
-  return json({ ok: true, sessions: sessionIds.size, responses: data.responses.length });
+  return json({ ok: true, sessions: games.size, responses: data.responses.length });
 }
 
 // --- Routing ---

@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+import 'coords.dart';
 import 'models.dart';
+import 'nicknames.dart';
 
 String _iso(int seconds) => DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true).toIso8601String();
 
@@ -64,4 +66,79 @@ List<MapEntry<String, int>> countBy(List<TravelAnswer> answers, String Function(
     counts[k] = (counts[k] ?? 0) + 1;
   }
   return counts.entries.toList()..sort((x, y) => y.value.compareTo(x.value));
+}
+
+String coordAnswersToCsv(List<CoordAnswer> answers, List<CoordTask> tasks, String lang) {
+  final out = StringBuffer(
+    '\uFEFFnickname,task,mode,format,typed,lat,lon,distance_m,score,target_lat,target_lon,utm,created_at\r\n',
+  );
+  for (final a in answers) {
+    final t = tasks[a.round];
+    out.write([
+      _csvText(nickname(a.participantId, lang)),
+      a.round + 1,
+      t.mode,
+      t.format,
+      _csvText(a.raw),
+      a.lat,
+      a.lon,
+      a.distanceM.round(),
+      a.score,
+      t.lat,
+      t.lon,
+      _csvText(formatUtm(a.lat, a.lon)),
+      _iso(a.createdAt),
+    ].join(','));
+    out.write('\r\n');
+  }
+  return out.toString();
+}
+
+String coordAnswersToGeoJson(List<CoordAnswer> answers, List<CoordTask> tasks, String lang) =>
+    const JsonEncoder.withIndent('  ').convert({
+      'type': 'FeatureCollection',
+      'features': [
+        for (final a in answers)
+          {
+            'type': 'Feature',
+            'geometry': {
+              'type': 'Point',
+              'coordinates': [a.lon, a.lat],
+            },
+            'properties': {
+              'nickname': nickname(a.participantId, lang),
+              'task': a.round + 1,
+              'mode': tasks[a.round].mode,
+              'format': tasks[a.round].format,
+              'typed': a.raw,
+              'distance_m': a.distanceM.round(),
+              'score': a.score,
+              'target_lat': tasks[a.round].lat,
+              'target_lon': tasks[a.round].lon,
+              'created_at': _iso(a.createdAt),
+            },
+          },
+      ],
+    });
+
+class LeaderRow {
+  final String participantId;
+  final int score, answered;
+  const LeaderRow(this.participantId, this.score, this.answered);
+}
+
+/// Highest total first. With equal totals, whoever answered fewer tasks ranks higher.
+List<LeaderRow> leaderboard(List<CoordAnswer> answers) {
+  final score = <String, int>{};
+  final count = <String, int>{};
+  for (final a in answers) {
+    score[a.participantId] = (score[a.participantId] ?? 0) + a.score;
+    count[a.participantId] = (count[a.participantId] ?? 0) + 1;
+  }
+  final rows = [for (final id in score.keys) LeaderRow(id, score[id]!, count[id]!)];
+  rows.sort((x, y) {
+    final byScore = y.score.compareTo(x.score);
+    return byScore != 0 ? byScore : x.answered.compareTo(y.answered);
+  });
+  return rows;
 }

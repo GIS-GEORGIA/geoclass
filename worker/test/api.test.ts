@@ -100,7 +100,7 @@ describe('student submit', () => {
     const { token } = await newSession();
     await send(token);
     const data = (await (await student('join', { token })).json()) as Record<string, unknown>;
-    expect(Object.keys(data).sort()).toEqual(['game', 'name', 'status']);
+    expect(Object.keys(data).sort()).toEqual(['game', 'name', 'settings', 'status']);
   });
 
   it('accepts an answer and shows it to the teacher', async () => {
@@ -220,6 +220,19 @@ describe('moderation and reset', () => {
     expect((await responses(a.session.id)).responses).toHaveLength(0);
     expect((await responses(b.session.id)).responses).toHaveLength(1);
   });
+
+  it('reset tells students to start again and keeps the tasks', async () => {
+    const res = await call('POST', 'sessions', {
+      name: 'Coords',
+      game: 'coordinates',
+      tasks: [{ lat: 41.7, lon: 44.8, mode: 'to_map', format: 'dd', label: '' }],
+    });
+    const { session, token } = (await res.json()) as { session: { id: string }; token: string };
+    await call('DELETE', `sessions/${session.id}/responses`);
+    const joined = (await (await student('join', { token })).json()) as { settings: { resetAt: number; tasks: unknown[] } };
+    expect(joined.settings.resetAt).toBeGreaterThan(0);
+    expect(joined.settings.tasks).toHaveLength(1);
+  });
 });
 
 describe('backup and restore', () => {
@@ -263,5 +276,122 @@ describe('backup and restore', () => {
     expect((await call('POST', 'restore', file)).status).toBe(400);
     expect((await call('POST', 'restore', { format: 'other' })).status).toBe(400);
     expect((await exported()).sessions).toHaveLength(0);
+  });
+});
+
+describe('coordinates game', () => {
+  const tasks = [
+    { lat: 41.7, lon: 44.8, mode: 'to_map', format: 'dd', label: 'თბილისი' },
+    { lat: 42.27, lon: 42.7, mode: 'read', format: 'utm', label: '' },
+  ];
+  const coordAnswer = { raw: '41.7, 44.8', format: 'dd', mode: 'to_map' };
+
+  async function game() {
+    const res = await call('POST', 'sessions', { name: 'Coords', game: 'coordinates', tasks });
+    expect(res.status).toBe(201);
+    return (await res.json()) as { session: { id: string }; token: string };
+  }
+
+  const play = (token: string, over: Record<string, unknown> = {}) =>
+    send(token, { answer: coordAnswer, lat: 41.7, lon: 44.8, round: 0, ...over });
+
+  async function rows(sessionId: string) {
+    return (await (await call('GET', `sessions/${sessionId}/responses`)).json()) as {
+      responses: { round: number; score: number; distanceM: number; lat: number }[];
+    };
+  }
+
+  it('rejects a game without valid tasks', async () => {
+    expect((await call('POST', 'sessions', { name: 'x', game: 'coordinates' })).status).toBe(400);
+    expect((await call('POST', 'sessions', { name: 'x', game: 'coordinates', tasks: [] })).status).toBe(400);
+    expect((await call('POST', 'sessions', { name: 'x', game: 'coordinates', tasks: [{ ...tasks[0], lat: 99 }] })).status).toBe(400);
+    expect((await call('POST', 'sessions', { name: 'x', game: 'coordinates', tasks: [{ ...tasks[0], mode: 'x' }] })).status).toBe(400);
+    expect((await call('POST', 'sessions', { name: 'x', game: 'coordinates', tasks: Array(31).fill(tasks[0]) })).status).toBe(400);
+  });
+
+  it('gives the tasks to the student on join', async () => {
+    const { token } = await game();
+    const data = (await (await student('join', { token })).json()) as { game: string; settings: { tasks: unknown[] } };
+    expect(data.game).toBe('coordinates');
+    expect(data.settings.tasks).toHaveLength(2);
+  });
+
+  it('scores on the server, ignoring any score sent by the client', async () => {
+    const { session, token } = await game();
+    expect((await play(token, { score: 1, distanceM: 999999 })).status).toBe(201);
+    const [row] = (await rows(session.id)).responses;
+    expect(row.score).toBe(100);
+    expect(row.distanceM).toBeLessThan(1);
+  });
+
+  it('gives lower scores further away', async () => {
+    const { session, token } = await game();
+    await play(token, { lat: 41.79, lon: 44.8 }); // about 10 km
+    await play(token, { lat: 43, lon: 44.8 }); // about 145 km
+    const scores = (await rows(session.id)).responses.map((r) => r.score).sort((a, b) => b - a);
+    expect(scores[0]).toBe(50);
+    expect(scores[1]).toBe(0);
+  });
+
+  it('counts the first try for a task, and each task separately', async () => {
+    const { session, token } = await game();
+    const participantId = 'same-participant-3';
+    await play(token, { participantId, lat: 43 });
+    await play(token, { participantId, lat: 41.7 });
+    await play(token, { participantId, round: 1, lat: 42.27, lon: 42.7 });
+    const { responses: all } = await rows(session.id);
+    expect(all).toHaveLength(2);
+    expect(all.find((r) => r.round === 0)!.score).toBe(0);
+    expect(all.find((r) => r.round === 1)!.score).toBe(100);
+  });
+
+  it('rejects a task that does not exist', async () => {
+    const { token } = await game();
+    expect((await play(token, { round: 2 })).status).toBe(400);
+    expect((await play(token, { round: -1 })).status).toBe(400);
+    expect((await play(token, { round: 'x' })).status).toBe(400);
+    expect((await play(token, { round: undefined })).status).toBe(400);
+  });
+
+  it('rejects a bad answer format', async () => {
+    const { token } = await game();
+    expect((await play(token, { answer: { ...coordAnswer, format: 'x' } })).status).toBe(400);
+    expect((await play(token, { answer: { ...coordAnswer, raw: 'x'.repeat(61) } })).status).toBe(400);
+  });
+
+  it('restores tasks and works scores out again', async () => {
+    const { session, token } = await game();
+    await play(token);
+    const file = (await (await call('GET', 'backup')).json()) as { responses: { score: number; lat: number }[] };
+    expect(file.responses[0].score).toBe(100);
+    await call('DELETE', `sessions/${session.id}`);
+    file.responses[0].score = 12345;
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    const [row] = (await rows(session.id)).responses;
+    expect(row.score).toBe(100);
+    const after = (await (await call('GET', 'sessions')).json()) as { sessions: { settings: { tasks: unknown[] } }[] };
+    expect(after.sessions[0].settings.tasks).toHaveLength(2);
+  });
+
+  it('refuses a backup whose answer points to a missing task', async () => {
+    const { session, token } = await game();
+    await play(token);
+    const file = (await (await call('GET', 'backup')).json()) as { responses: { round: number }[] };
+    await call('DELETE', `sessions/${session.id}`);
+    file.responses[0].round = 9;
+    expect((await call('POST', 'restore', file)).status).toBe(400);
+  });
+
+  it('still restores a first-version backup', async () => {
+    const res = await call('POST', 'restore', {
+      format: 'geoclass-backup',
+      version: 1,
+      sessions: [{ id: 'old-session-1', name: 'Old', game: 'travel', archived: false, createdAt: 1790000000 }],
+      responses: [
+        { id: 'old-response-1', sessionId: 'old-session-1', participantId: 'old-participant', answer, lat: 1, lon: 2, hidden: false, createdAt: 1790000000 },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect((await responses('old-session-1')).responses).toHaveLength(1);
   });
 });

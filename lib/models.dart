@@ -3,6 +3,7 @@ class SessionInfo {
   final int rev, createdAt;
   final bool archived;
   final int? responses;
+  final Map<String, dynamic> settings;
 
   const SessionInfo({
     required this.id,
@@ -13,6 +14,7 @@ class SessionInfo {
     required this.createdAt,
     required this.archived,
     this.responses,
+    this.settings = const {},
   });
 
   factory SessionInfo.fromJson(Map<String, dynamic> j) => SessionInfo(
@@ -24,6 +26,7 @@ class SessionInfo {
         createdAt: j['createdAt'] as int,
         archived: j['archived'] as bool,
         responses: j['responses'] as int?,
+        settings: j['settings'] as Map<String, dynamic>? ?? const {},
       );
 }
 
@@ -65,3 +68,57 @@ class TravelAnswer {
 
 const transports = ['plane', 'train', 'car', 'bus', 'ship', 'bike', 'foot'];
 const companies = ['alone', 'family', 'friends', 'class'];
+
+/// One task of the coordinates game.
+class CoordTask {
+  final double lat, lon;
+  final String mode; // to_map: coordinates are given, find the point. read: a point is given, write its coordinates.
+  final String format; // dd, dms or utm
+  final String label;
+
+  const CoordTask({required this.lat, required this.lon, required this.mode, required this.format, this.label = ''});
+
+  factory CoordTask.fromJson(Map<String, dynamic> j) => CoordTask(
+        lat: (j['lat'] as num).toDouble(),
+        lon: (j['lon'] as num).toDouble(),
+        mode: j['mode'] as String,
+        format: j['format'] as String,
+        label: j['label'] as String? ?? '',
+      );
+
+  Map<String, dynamic> toJson() => {'lat': lat, 'lon': lon, 'mode': mode, 'format': format, 'label': label};
+
+  static List<CoordTask> listFrom(Map<String, dynamic> settings) => [
+        for (final t in settings['tasks'] as List? ?? const []) CoordTask.fromJson(t as Map<String, dynamic>),
+      ];
+}
+
+class CoordAnswer {
+  final String id, participantId, raw;
+  final int round, score, createdAt;
+  final double lat, lon, distanceM;
+
+  const CoordAnswer({
+    required this.id,
+    required this.participantId,
+    required this.raw,
+    required this.round,
+    required this.score,
+    required this.lat,
+    required this.lon,
+    required this.distanceM,
+    required this.createdAt,
+  });
+
+  factory CoordAnswer.fromJson(Map<String, dynamic> j) => CoordAnswer(
+        id: j['id'] as String,
+        participantId: j['participantId'] as String,
+        raw: (j['answer'] as Map<String, dynamic>)['raw'] as String? ?? '',
+        round: j['round'] as int,
+        score: j['score'] as int,
+        lat: (j['lat'] as num).toDouble(),
+        lon: (j['lon'] as num).toDouble(),
+        distanceM: (j['distanceM'] as num).toDouble(),
+        createdAt: j['createdAt'] as int,
+      );
+}

@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
+import 'coordinates_play.dart';
 import 'geo_map.dart';
 import 'l10n.dart';
 import 'models.dart';
@@ -38,6 +39,9 @@ class _StudentPageState extends State<StudentPage> {
   _Stage _stage = _Stage.loading;
   String _name = '';
   String _status = 'open';
+  String _game = 'travel';
+  List<CoordTask> _tasks = const [];
+  int _resetAt = 0;
   String? _error;
   bool _busy = false;
 
@@ -85,7 +89,7 @@ class _StudentPageState extends State<StudentPage> {
         setState(() => _stage = _Stage.noConnection);
       }
     }
-    if (await _queue.pending() > 0) _flush();
+    if (_game == 'travel' && await _queue.pending() > 0) _flush();
   }
 
   void _apply(Map<String, dynamic> data) {
@@ -93,6 +97,10 @@ class _StudentPageState extends State<StudentPage> {
     setState(() {
       _name = data['name'] as String;
       _status = data['status'] as String;
+      _game = data['game'] as String? ?? 'travel';
+      final settings = data['settings'] as Map<String, dynamic>? ?? const {};
+      _tasks = CoordTask.listFrom(settings);
+      _resetAt = settings['resetAt'] as int? ?? 0;
       _stage = _Stage.form;
     });
   }
@@ -217,6 +225,15 @@ class _StudentPageState extends State<StudentPage> {
         _Stage.queued => _message(Icons.cloud_upload, s['queued_title'], body: s['queued_body'], action: _flush, actionLabel: s['retry']),
         _Stage.form when _status == 'paused' => _message(Icons.pause_circle, s['session_paused'], action: _load, actionLabel: s['retry']),
         _Stage.form when _status == 'closed' => _message(Icons.lock, s['session_closed']),
+        _Stage.form when _game == 'coordinates' => CoordinatesPlay(
+            s: s,
+            lang: widget.settings.lang,
+            token: widget.token,
+            tasks: _tasks,
+            resetAt: _resetAt,
+            api: _api,
+            onStopped: (status) => setState(() => _status = status),
+          ),
         _Stage.form => _form(),
       };
 
