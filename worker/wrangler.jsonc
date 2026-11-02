@@ -4,6 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-22",
   "observability": { "enabled": true },
+  "routes": [{ "pattern": "geoclass.qgis.ge", "custom_domain": true }],
   // The Flutter web build is served by the same Worker, so the app and /api share one origin.
   "assets": {
     "directory": "../build/web",
@@ -13,8 +14,7 @@
     {
       "binding": "DB",
       "database_name": "geoclass",
-      // Local placeholder. `wrangler d1 create geoclass` prints the real id before the first deploy.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "30eca52a-877c-422f-a0a5-207d564567e1",
       "migrations_dir": "migrations"
     }
   ],

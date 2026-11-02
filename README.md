@@ -4,7 +4,7 @@ Classroom geography games. The teacher shows a QR code, students answer anonymou
 
 საკლასო გეოგრაფიული თამაშები. მასწავლებელი აჩვენებს QR კოდს, მოსწავლეები ტელეფონიდან ანონიმურად პასუხობენ, პასუხები კი პირდაპირ რუკაზე ჩნდება.
 
-**Status:** Stage 1 of 4. The travel game works from QR code to live map.
+**Status:** Stage 1 of 4, live at https://geoclass.qgis.ge. The travel game works from QR code to live map.
 
 | Stage | Contents | Status |
 |---|---|---|
@@ -96,7 +96,7 @@ Run the `flutter build` line from the repository root. Native apps use `https://
 
 ## Rebuilding the place data
 
-`assets/places.tsv` comes from [GeoNames](https://www.geonames.org/) dumps `cities15000` and `GE`:
+`assets/places.txt` comes from [GeoNames](https://www.geonames.org/) dumps `cities15000` and `GE`:
 
 ```bash
 node tool/build_places.mjs cities15000.txt GE.txt

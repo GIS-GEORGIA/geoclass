@@ -1,4 +1,4 @@
-// Builds assets/places.tsv and assets/countries.json for the offline place search.
+// Builds assets/places.txt and assets/countries.json for the offline place search.
 // Input: GeoNames dumps (CC BY 4.0) from https://download.geonames.org/export/dump/
 //   node tool/build_places.mjs <cities15000.txt> <GE.txt>
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -35,7 +35,7 @@ read(georgiaPath, (cls, code) => GEORGIA_FEATURES.has(cls) && GEORGIA_CODES.has(
 const rows = [...places.values()].sort((a, b) => b.population - a.population);
 const clean = (s) => s.replace(/[\t\n]/g, ' ');
 writeFileSync(
-  'assets/places.tsv',
+  'assets/places.txt',
   rows.map((p) => [clean(p.name), clean(p.ka), p.country, p.lat, p.lon].join('\t')).join('\n') + '\n',
 );
 

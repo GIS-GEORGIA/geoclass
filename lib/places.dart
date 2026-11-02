@@ -54,7 +54,7 @@ class PlaceIndex {
 
   /// Loaded on first use, so opening the form doesn't pay for it.
   static Future<PlaceIndex> load() => _loading ??= () async {
-        final tsv = await rootBundle.loadString('assets/places.tsv');
+        final tsv = await rootBundle.loadString('assets/places.txt');
         final raw = jsonDecode(await rootBundle.loadString('assets/countries.json')) as Map<String, dynamic>;
         return parse(tsv, {for (final e in raw.entries) e.key: (e.value as List).cast<String>()});
       }();
