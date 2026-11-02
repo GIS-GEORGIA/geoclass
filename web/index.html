@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="GeoClass: classroom geography games with QR codes and live maps">
+  <meta name="theme-color" content="#00796B">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="GeoClass">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="manifest" href="manifest.json">
+  <title>GeoClass</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #fff; }
+    @media (prefers-color-scheme: dark) { html, body { background: #121212; } }
+    #loading { height: 100%; display: flex; align-items: center; justify-content: center; }
+    #loading div {
+      width: 44px; height: 44px; border-radius: 50%;
+      border: 4px solid #00796B33; border-top-color: #00796B;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <!-- Shown while the app downloads on a phone's first visit. -->
+  <div id="loading"><div></div></div>
+  <script>
+    window.addEventListener('flutter-first-frame', () => document.getElementById('loading').remove());
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

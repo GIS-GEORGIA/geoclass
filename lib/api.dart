@@ -1,0 +1,104 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+
+import 'models.dart';
+
+const _productionUrl = 'https://geoclass.qgis.ge';
+const _apiBase = String.fromEnvironment('API_BASE');
+
+/// Where the app is reachable. On web that is the page's own origin.
+String get publicUrl => _apiBase.isNotEmpty ? _apiBase : (kIsWeb ? Uri.base.origin : _productionUrl);
+
+/// The server answered with an error. `key` is a translation key or error code.
+class ApiError implements Exception {
+  final int status;
+  final String key;
+  ApiError(this.status, this.key);
+  @override
+  String toString() => key;
+}
+
+/// The server could not be reached at all.
+class NoConnection implements Exception {}
+
+class Polled {
+  final SessionInfo session;
+  final List<TravelAnswer>? answers; // null when nothing changed
+  Polled(this.session, this.answers);
+}
+
+class Api {
+  final String? teacherKey;
+  final http.Client _client;
+  Api({this.teacherKey, http.Client? client}) : _client = client ?? http.Client();
+
+  Future<Map<String, dynamic>> _send(String method, String path, [Object? body]) async {
+    final request = http.Request(method, Uri.parse('$publicUrl/api/$path'));
+    request.headers['Content-Type'] = 'application/json';
+    if (teacherKey != null) request.headers['Authorization'] = 'Bearer $teacherKey';
+    if (body != null) request.body = jsonEncode(body);
+
+    final http.Response response;
+    try {
+      response = await http.Response.fromStream(
+        await _client.send(request).timeout(const Duration(seconds: 15)),
+      );
+    } on TimeoutException {
+      throw NoConnection();
+    } on http.ClientException {
+      throw NoConnection();
+    }
+
+    Map<String, dynamic> data = const {};
+    try {
+      data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    } on FormatException {
+      if (response.statusCode < 400) throw ApiError(response.statusCode, 'internal');
+    }
+    if (response.statusCode >= 400) {
+      throw ApiError(response.statusCode, data['error'] as String? ?? 'internal');
+    }
+    return data;
+  }
+
+  // Student
+  Future<Map<String, dynamic>> join(String token) => _send('POST', 'join', {'token': token});
+  Future<void> submit(Map<String, dynamic> submission) => _send('POST', 'submit', submission);
+
+  // Teacher
+  Future<void> checkKey() => _send('GET', 'me');
+
+  Future<List<SessionInfo>> sessions() async {
+    final data = await _send('GET', 'sessions');
+    return [for (final s in data['sessions'] as List) SessionInfo.fromJson(s as Map<String, dynamic>)];
+  }
+
+  Future<(SessionInfo, String)> createSession(String name, String game) async {
+    final data = await _send('POST', 'sessions', {'name': name, 'game': game});
+    return (SessionInfo.fromJson(data['session'] as Map<String, dynamic>), data['token'] as String);
+  }
+
+  Future<void> updateSession(String id, Map<String, dynamic> changes) => _send('PATCH', 'sessions/$id', changes);
+  Future<void> deleteSession(String id) => _send('DELETE', 'sessions/$id');
+  Future<void> resetResponses(String id) => _send('DELETE', 'sessions/$id/responses');
+  Future<String> newToken(String id) async => (await _send('POST', 'sessions/$id/token'))['token'] as String;
+
+  Future<Polled> poll(String id, int? rev) async {
+    final data = await _send('GET', 'sessions/$id/responses${rev == null ? '' : '?rev=$rev'}');
+    final session = SessionInfo.fromJson(data['session'] as Map<String, dynamic>);
+    if (data['changed'] != true) return Polled(session, null);
+    return Polled(session, [
+      for (final r in data['responses'] as List) TravelAnswer.fromJson(r as Map<String, dynamic>),
+    ]);
+  }
+
+  Future<void> setHidden(String responseId, bool hidden) => _send('PATCH', 'responses/$responseId', {'hidden': hidden});
+  Future<void> deleteResponse(String responseId) => _send('DELETE', 'responses/$responseId');
+
+  Future<Map<String, dynamic>> backup({String? sessionId}) =>
+      _send('GET', 'backup${sessionId == null ? '' : '?session=$sessionId'}');
+  Future<void> restore(Map<String, dynamic> file) => _send('POST', 'restore', file);
+}
