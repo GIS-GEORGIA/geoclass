@@ -64,6 +64,12 @@ abstract class SessionPageState<W extends SessionPageBase> extends State<W> with
   String exportCsv();
   String exportGeoJson();
 
+  /// Where the map opens, and how close fitting the answers goes.
+  LatLng get initialCenter => const LatLng(30, 30);
+  double get initialZoom => 2;
+  double get fitMaxZoom => 10;
+  double get singlePointZoom => 6;
+
   /// The coordinate grid this game uses.
   Widget gridLayer() => const GraticuleLayer();
 
@@ -167,13 +173,13 @@ abstract class SessionPageState<W extends SessionPageBase> extends State<W> with
     final points = fitPoints;
     if (points.isEmpty) return;
     if (points.length == 1) {
-      mapController.move(points.first, 6);
+      mapController.move(points.first, singlePointZoom);
       return;
     }
     mapController.fitCamera(CameraFit.bounds(
       bounds: LatLngBounds.fromPoints(points),
       padding: const EdgeInsets.all(48),
-      maxZoom: 10,
+      maxZoom: fitMaxZoom,
     ));
   }
 
@@ -324,8 +330,8 @@ abstract class SessionPageState<W extends SessionPageBase> extends State<W> with
           FlutterMap(
             mapController: mapController,
             options: MapOptions(
-              initialCenter: const LatLng(30, 30),
-              initialZoom: 2,
+              initialCenter: initialCenter,
+              initialZoom: initialZoom,
               minZoom: 2,
               onMapReady: () {
                 mapReady = true;

@@ -11,11 +11,13 @@ import 'package:geoclass/coords.dart';
 import 'package:geoclass/export.dart';
 import 'package:geoclass/l10n.dart';
 import 'package:geoclass/main.dart';
+import 'package:geoclass/mapping.dart';
 import 'package:geoclass/models.dart';
 import 'package:geoclass/photos.dart';
 import 'package:geoclass/nicknames.dart';
 import 'package:geoclass/places.dart';
 import 'package:geoclass/queue.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 TravelAnswer answer({
@@ -453,6 +455,96 @@ void main() {
       expect(parsePhotos(raw).length, (jsonDecode(raw) as List).length, reason: 'an entry has a mistake');
       for (final p in parsePhotos(raw)) {
         expect(File('web/aerial/${p.file}').existsSync(), isTrue, reason: '${p.file} is listed but missing');
+      }
+    });
+  });
+
+  group('mapping game', () {
+    MapObject object(String who, String kind, int at, {bool hidden = false}) => MapObject(
+          id: 'id-$who-$at',
+          participantId: who,
+          kind: kind,
+          category: 'park',
+          points: switch (kind) {
+            'point' => const [LatLng(41, 44)],
+            'line' => const [LatLng(41, 44), LatLng(42, 45)],
+            _ => const [LatLng(41, 44), LatLng(42, 44), LatLng(42, 45)],
+          },
+          hidden: hidden,
+          createdAt: at,
+        );
+
+    test('the most objects wins, then whoever got there sooner, and hidden ones do not count', () {
+      final rows = mappingLeaderboard([
+        object('slow', 'point', 10),
+        object('slow', 'point', 90),
+        object('quick', 'polygon', 10),
+        object('quick', 'line', 50),
+        object('cheat', 'point', 1, hidden: true),
+        object('cheat', 'point', 2, hidden: true),
+        object('cheat', 'point', 3, hidden: true),
+        object('most', 'point', 80),
+        object('most', 'point', 85),
+        object('most', 'point', 95),
+      ]);
+      expect(rows.map((r) => r.participantId), ['most', 'quick', 'slow']);
+      expect(rows.first.answered, 3);
+    });
+
+    test('GeoJSON keeps the true shapes, with polygons closed', () {
+      final data = jsonDecode(mapObjectsToGeoJson([
+        object('a', 'point', 1),
+        object('a', 'line', 2),
+        object('a', 'polygon', 3),
+      ], 'en')) as Map<String, dynamic>;
+      final shapes = [for (final f in data['features'] as List) f['geometry'] as Map<String, dynamic>];
+      expect(shapes.map((g) => g['type']), ['Point', 'LineString', 'Polygon']);
+      expect(shapes[0]['coordinates'], [44.0, 41.0]);
+      final ring = (shapes[2]['coordinates'] as List).first as List;
+      expect(ring.length, 4);
+      expect(ring.first, ring.last);
+    });
+
+    test('CSV holds the shape as WKT', () {
+      final csv = mapObjectsToCsv([object('a', 'polygon', 3)], 'en');
+      expect(csv, contains('"POLYGON ((44.0 41.0, 44.0 42.0, 45.0 42.0, 44.0 41.0))"'));
+    });
+
+    test('an object from the server reads back as drawn', () {
+      final o = MapObject.fromJson({
+        'id': 'x',
+        'participantId': 'p',
+        'hidden': true,
+        'createdAt': 5,
+        'answer': {
+          'kind': 'line',
+          'category': 'food',
+          'coords': [
+            [44, 41],
+            [46.5, 43],
+          ],
+        },
+      });
+      expect(o.points.last, const LatLng(43, 46.5));
+      expect(o.middle, const LatLng(42, 45.25));
+      expect(o.hidden, isTrue);
+    });
+
+    test('the clock reads minutes and seconds and stops at zero', () {
+      expect(formatClock(125), '2:05');
+      expect(formatClock(0), '0:00');
+      expect(formatClock(-4), '0:00');
+    });
+
+    test('every category and tool has a name', () {
+      for (final lang in ['ka', 'en']) {
+        final s = S(lang);
+        for (final c in mapCategories) {
+          expect(s['cat_$c'], isNot('cat_$c'));
+        }
+        for (final k in mapKinds) {
+          expect(s['tool_$k'], isNot('tool_$k'));
+        }
       }
     });
   });

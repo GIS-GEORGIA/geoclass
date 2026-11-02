@@ -109,7 +109,7 @@ describe('student submit', () => {
     const { token } = await newSession();
     await send(token);
     const data = (await (await student('join', { token })).json()) as Record<string, unknown>;
-    expect(Object.keys(data).sort()).toEqual(['game', 'name', 'settings', 'status']);
+    expect(Object.keys(data).sort()).toEqual(['game', 'name', 'now', 'settings', 'status']);
   });
 
   it('accepts an answer and shows it to the teacher', async () => {
@@ -285,6 +285,102 @@ describe('backup and restore', () => {
     expect((await call('POST', 'restore', file)).status).toBe(400);
     expect((await call('POST', 'restore', { format: 'other' })).status).toBe(400);
     expect((await exported()).sessions).toHaveLength(0);
+  });
+});
+
+describe('mapping game', () => {
+  const point = { kind: 'point', category: 'park', coords: [[44.8, 41.7]] };
+
+  async function game() {
+    const res = await call('POST', 'sessions', { name: 'Uban', game: 'mapping' });
+    expect(res.status).toBe(201);
+    return (await res.json()) as { session: { id: string }; token: string };
+  }
+
+  const draw = (token: string, answer: unknown, participantId = 'student-0001') =>
+    student('submit', { token, submissionId: id('sub'), participantId, answer, lat: 0, lon: 0 });
+
+  const start = (sessionId: string, seconds = 180) =>
+    call('POST', `sessions/${sessionId}/timer`, { seconds, center: [41.7, 44.8], zoom: 14 });
+
+  async function rows(sessionId: string) {
+    return (await (await call('GET', `sessions/${sessionId}/responses`)).json()) as {
+      responses: { round: number; lat: number; lon: number; answer: { coords: number[][]; kind: string } }[];
+    };
+  }
+
+  it('waits for the teacher, then takes points, lines and polygons', async () => {
+    const { session, token } = await game();
+    expect((await draw(token, point)).status).toBe(409);
+
+    expect((await start(session.id)).status).toBe(200);
+    const joined = (await (await student('join', { token })).json()) as { settings: { endsAt: number; center: number[]; zoom: number }; now: number };
+    expect(joined.settings.endsAt - joined.now).toBeGreaterThan(170);
+    expect(joined.settings.center).toEqual([41.7, 44.8]);
+
+    expect((await draw(token, point)).status).toBe(201);
+    expect((await draw(token, { kind: 'line', category: 'park', coords: [[44.81, 41.7], [44.82, 41.71]] })).status).toBe(201);
+    const square = [[44.9, 41.8], [44.91, 41.8], [44.91, 41.81]];
+    expect((await draw(token, { kind: 'polygon', category: 'stadium', coords: square })).status).toBe(201);
+
+    const { responses } = await rows(session.id);
+    expect(responses.map((r) => r.round)).toEqual([0, 1, 2]);
+    // The server works out the location itself.
+    expect(responses[0].lat).toBeCloseTo(41.7);
+    expect(responses[2].answer.kind).toBe('polygon');
+    expect(responses[2].lon).toBeCloseTo((44.9 + 44.91 + 44.91) / 3);
+  });
+
+  it('refuses bad shapes and the same place twice', async () => {
+    const { session, token } = await game();
+    await start(session.id);
+    expect((await draw(token, { kind: 'polygon', category: 'park', coords: [[44, 41], [45, 41]] })).status).toBe(400);
+    expect((await draw(token, { kind: 'line', category: 'park', coords: [[44, 41]] })).status).toBe(400);
+    expect((await draw(token, { kind: 'point', category: 'park', coords: [[44, 41], [45, 41]] })).status).toBe(400);
+    expect((await draw(token, { kind: 'point', category: 'nope', coords: [[44, 41]] })).status).toBe(400);
+    expect((await draw(token, { kind: 'point', category: 'park', coords: [[244, 41]] })).status).toBe(400);
+    expect((await draw(token, { kind: 'point', category: 'park', coords: Array(101).fill([44, 41]) })).status).toBe(400);
+
+    expect((await draw(token, point)).status).toBe(201);
+    const again = await draw(token, point);
+    expect(again.status).toBe(409);
+    expect(await again.json()).toEqual({ error: 'same_place' });
+    // Another category, or another student, is a different object.
+    expect((await draw(token, { ...point, category: 'food' })).status).toBe(201);
+    expect((await draw(token, point, 'student-0002')).status).toBe(201);
+  });
+
+  it('stops when the teacher stops the clock, and a reset starts over', async () => {
+    const { session, token } = await game();
+    await start(session.id, 0);
+    await env.DB.prepare("UPDATE sessions SET settings = json_set(settings, '$.endsAt', unixepoch() - 60) WHERE id = ?").bind(session.id).run();
+    const late = await draw(token, point);
+    expect(late.status).toBe(409);
+    expect(await late.json()).toEqual({ error: 'time_up' });
+
+    await call('DELETE', `sessions/${session.id}/responses`);
+    expect(await (await draw(token, point)).json()).toEqual({ error: 'not_started' });
+  });
+
+  it('only sets a valid timer, and only on this game', async () => {
+    const { session } = await game();
+    expect((await call('POST', `sessions/${session.id}/timer`, { seconds: -1 })).status).toBe(400);
+    expect((await call('POST', `sessions/${session.id}/timer`, { seconds: 4000 })).status).toBe(400);
+    expect((await call('POST', `sessions/${session.id}/timer`, { seconds: 60, center: [99, 0] })).status).toBe(400);
+    expect((await call('POST', `sessions/${session.id}/timer`, { seconds: 60 }, {})).status).toBe(401);
+    const other = await newSession();
+    expect((await call('POST', `sessions/${other.session.id}/timer`, { seconds: 60 })).status).toBe(400);
+  });
+
+  it('keeps every object through a backup', async () => {
+    const { session, token } = await game();
+    await start(session.id);
+    await draw(token, point);
+    await draw(token, { kind: 'line', category: 'food', coords: [[44.81, 41.7], [44.82, 41.71]] });
+    const file = await (await call('GET', `backup?session=${session.id}`)).json();
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    expect((await rows(session.id)).responses.length).toBe(2);
   });
 });
 

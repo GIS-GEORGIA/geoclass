@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'coords.dart';
+import 'mapping.dart';
 import 'models.dart';
 import 'nicknames.dart';
 
@@ -121,6 +122,61 @@ String coordAnswersToGeoJson(List<CoordAnswer> answers, List<CoordTask> tasks, S
       ],
     });
 
+Map<String, dynamic> _geometry(MapObject o) => switch (o.kind) {
+      'point' => {'type': 'Point', 'coordinates': o.coords.first},
+      'line' => {'type': 'LineString', 'coordinates': o.coords},
+      // A polygon's ring ends where it starts.
+      _ => {
+          'type': 'Polygon',
+          'coordinates': [
+            [...o.coords, o.coords.first],
+          ],
+        },
+    };
+
+String _wkt(MapObject o) {
+  String pair(List<double> c) => '${c[0]} ${c[1]}';
+  return switch (o.kind) {
+    'point' => 'POINT (${pair(o.coords.first)})',
+    'line' => 'LINESTRING (${o.coords.map(pair).join(', ')})',
+    _ => 'POLYGON ((${[...o.coords, o.coords.first].map(pair).join(', ')}))',
+  };
+}
+
+String mapObjectsToCsv(List<MapObject> objects, String lang) {
+  final out = StringBuffer('\uFEFFnickname,category,kind,wkt,hidden,created_at\r\n');
+  for (final o in objects) {
+    out.write([
+      _csvText(nickname(o.participantId, lang)),
+      o.category,
+      o.kind,
+      _csvText(_wkt(o)),
+      o.hidden,
+      _iso(o.createdAt),
+    ].join(','));
+    out.write('\r\n');
+  }
+  return out.toString();
+}
+
+String mapObjectsToGeoJson(List<MapObject> objects, String lang) => const JsonEncoder.withIndent('  ').convert({
+      'type': 'FeatureCollection',
+      'features': [
+        for (final o in objects)
+          {
+            'type': 'Feature',
+            'geometry': _geometry(o),
+            'properties': {
+              'nickname': nickname(o.participantId, lang),
+              'category': o.category,
+              'kind': o.kind,
+              'hidden': o.hidden,
+              'created_at': _iso(o.createdAt),
+            },
+          },
+      ],
+    });
+
 class LeaderRow {
   final String participantId;
   final int score, answered;
@@ -139,6 +195,23 @@ List<LeaderRow> leaderboard(List<CoordAnswer> answers) {
   rows.sort((x, y) {
     final byScore = y.score.compareTo(x.score);
     return byScore != 0 ? byScore : x.answered.compareTo(y.answered);
+  });
+  return rows;
+}
+
+/// Most objects first. With equal counts, whoever reached that count sooner ranks higher. Hidden objects don't count.
+List<LeaderRow> mappingLeaderboard(List<MapObject> objects) {
+  final count = <String, int>{};
+  final last = <String, int>{};
+  for (final o in objects) {
+    if (o.hidden) continue;
+    count[o.participantId] = (count[o.participantId] ?? 0) + 1;
+    if (o.createdAt > (last[o.participantId] ?? 0)) last[o.participantId] = o.createdAt;
+  }
+  final rows = [for (final id in count.keys) LeaderRow(id, count[id]!, count[id]!)];
+  rows.sort((x, y) {
+    final byCount = y.answered.compareTo(x.answered);
+    return byCount != 0 ? byCount : last[x.participantId]!.compareTo(last[y.participantId]!);
   });
   return rows;
 }

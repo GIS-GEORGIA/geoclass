@@ -28,6 +28,7 @@ Upload `build/app/outputs/bundle/release/app-release.aab`. Raise the number afte
 > • სად გსურს მოგზაურობა? — მოსწავლეების არჩეული ადგილები ერთ რუკაზე.
 > • კოორდინატების თამაში — გეოგრაფიული (DD, DM, DMS) და მართკუთხა (UTM) კოორდინატები, ქულა და რეიტინგი.
 > • გამოიცანი საჰაერო ფოტოდან — იპოვე ფოტოზე ნაჩვენები ადგილი რუკაზე.
+> • დახატე შენი უბანი — წერტილებით, ხაზებითა და პოლიგონებით დახატე რაც შეიძლება მეტი ობიექტი მასწავლებლის დათქმულ დროში.
 >
 > მოსწავლეს არ სჭირდება ანგარიში, სახელი ან ელფოსტა. აპს აქვს ქართული და ინგლისური ენა, ღია და მუქი თემა. კოდი ღიაა: github.com/GIS-GEORGIA/geoclass
 
@@ -39,6 +40,7 @@ Upload `build/app/outputs/bundle/release/app-release.aab`. Raise the number afte
 > • Where would you travel? — everyone's chosen places on one map.
 > • Coordinates game — geographic (DD, DM, DMS) and rectangular (UTM) coordinates, with scores and a leaderboard.
 > • Guess from aerial photos — find the place in the photo on the map.
+> • Map your neighbourhood — draw as many places as you can with points, lines and polygons, within the time the teacher sets.
 >
 > Students need no account, name or email. Georgian and English, light and dark themes. Open source: github.com/GIS-GEORGIA/geoclass
 

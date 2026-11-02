@@ -1,10 +1,16 @@
-import { HttpError, distanceM, scoreFor, validateAnswer, validateTasks, type Task } from './validate';
+import { HttpError, distanceM, middle, scoreFor, validateAnswer, validateTasks, type Task } from './validate';
 
 const MAX_RESPONSES_PER_SESSION = 2000;
 const MAX_BODY_BYTES = 8 * 1024;
 const MAX_RESTORE_BYTES = 4 * 1024 * 1024;
 const D1_BATCH_SIZE = 50;
 const ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+const MAX_OBJECTS_PER_STUDENT = 200;
+// An object drawn at the last second still reaches the server.
+const TIME_UP_GRACE_SEC = 15;
+// Drawing the same place twice doesn't count twice.
+const SAME_PLACE_M = 10;
+const MAX_TIMER_SEC = 3600;
 
 const CORS = {
   'Access-Control-Allow-Origin': '*', // no cookies: every teacher call carries its own bearer key
@@ -61,7 +67,7 @@ type SessionRow = {
 };
 
 const SESSION_COLUMNS = 'id, name, game, status, rev, archived, settings, created_at';
-const GAMES = ['travel', 'coordinates', 'aerial'];
+const GAMES = ['travel', 'coordinates', 'aerial', 'mapping'];
 // Games made of tasks that the server scores.
 const TASK_GAMES = ['coordinates', 'aerial'];
 
@@ -75,6 +81,7 @@ function sessionJson(s: SessionRow, count?: number) {
     archived: s.archived === 1,
     settings: JSON.parse(s.settings),
     createdAt: s.created_at,
+    now: nowSec(), // so a device with a wrong clock still shows the right time left
     ...(count === undefined ? {} : { responses: count }),
   };
 }
@@ -138,7 +145,7 @@ const bumpRev = (env: Env, id: string) => env.DB.prepare('UPDATE sessions SET re
 async function join(env: Env, request: Request): Promise<Response> {
   const { token } = await readBody<{ token?: unknown }>(request);
   const s = await sessionByToken(env, token);
-  return json({ name: s.name, game: s.game, status: s.status, settings: JSON.parse(s.settings) });
+  return json({ name: s.name, game: s.game, status: s.status, settings: JSON.parse(s.settings), now: nowSec() });
 }
 
 async function submit(env: Env, request: Request): Promise<Response> {
@@ -172,6 +179,7 @@ async function submit(env: Env, request: Request): Promise<Response> {
     throw new HttpError(400, 'bad_location');
   }
   const answer = validateAnswer(s.game, body.answer);
+  if (s.game === 'mapping') return submitObject(env, s, submissionId, participantId, answer);
 
   const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM responses WHERE session_id = ? AND participant_id != ?')
     .bind(s.id, participantId)
@@ -200,6 +208,47 @@ async function submit(env: Env, request: Request): Promise<Response> {
     env.DB.prepare(
       'INSERT INTO responses (id, session_id, participant_id, answer, lat, lon, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
     ).bind(submissionId, s.id, participantId, JSON.stringify(answer), lat, lon, nowSec()),
+    bumpRev(env, s.id),
+  ]);
+  return json({ ok: true, duplicate: false }, 201);
+}
+
+async function submitObject(
+  env: Env,
+  s: SessionRow,
+  submissionId: string,
+  participantId: string,
+  answer: Record<string, unknown>,
+): Promise<Response> {
+  const { endsAt } = JSON.parse(s.settings) as { endsAt?: number };
+  if (endsAt === undefined) throw new HttpError(409, 'not_started');
+  if (nowSec() > endsAt + TIME_UP_GRACE_SEC) throw new HttpError(409, 'time_up');
+
+  const { results: mine } = await env.DB.prepare('SELECT round, answer, lat, lon FROM responses WHERE session_id = ? AND participant_id = ?')
+    .bind(s.id, participantId)
+    .all<{ round: number; answer: string; lat: number; lon: number }>();
+  if (mine.length >= MAX_OBJECTS_PER_STUDENT) throw new HttpError(409, 'too_many_objects');
+  const [lon, lat] = middle(answer.coords as number[][]);
+  for (const o of mine) {
+    if (JSON.parse(o.answer).category === answer.category && distanceM(lat, lon, o.lat, o.lon) < SAME_PLACE_M) {
+      throw new HttpError(409, 'same_place');
+    }
+  }
+
+  const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM responses WHERE session_id = ?').bind(s.id).first<{ n: number }>();
+  if ((count?.n ?? 0) >= MAX_RESPONSES_PER_SESSION) throw new HttpError(429, 'session_full');
+
+  await env.DB.batch([
+    env.DB.prepare('INSERT OR IGNORE INTO responses (id, session_id, participant_id, round, answer, lat, lon, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(
+      submissionId,
+      s.id,
+      participantId,
+      mine.reduce((next, o) => Math.max(next, o.round + 1), 0),
+      JSON.stringify(answer),
+      lat,
+      lon,
+      nowSec(),
+    ),
     bumpRev(env, s.id),
   ]);
   return json({ ok: true, duplicate: false }, 201);
@@ -251,6 +300,32 @@ async function updateSession(env: Env, request: Request, id: string): Promise<Re
   return json({ session: sessionJson(await sessionOr404(env, id)) });
 }
 
+/** Starts the mapping game's clock for everyone, changes the time left, or with 0 seconds stops it. */
+async function setTimer(env: Env, request: Request, id: string): Promise<Response> {
+  const s = await sessionOr404(env, id);
+  if (s.game !== 'mapping') throw new HttpError(400, 'bad_game');
+  const { seconds, center, zoom } = await readBody<{ seconds?: unknown; center?: unknown; zoom?: unknown }>(request);
+  if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 0 || seconds > MAX_TIMER_SEC) {
+    throw new HttpError(400, 'bad_timer');
+  }
+  const settings = JSON.parse(s.settings) as Record<string, unknown>;
+  settings.endsAt = nowSec() + seconds;
+  // Where students' maps open: what the teacher's map shows.
+  if (Array.isArray(center)) {
+    const [lat, lon] = center;
+    if (typeof lat !== 'number' || typeof lon !== 'number' || !(Math.abs(lat) <= 90) || !(Math.abs(lon) <= 180)) {
+      throw new HttpError(400, 'bad_timer');
+    }
+    settings.center = [lat, lon];
+    settings.zoom = typeof zoom === 'number' && zoom >= 2 && zoom <= 20 ? zoom : 13;
+  }
+  await env.DB.batch([
+    env.DB.prepare('UPDATE sessions SET settings = ? WHERE id = ?').bind(JSON.stringify(settings), id),
+    bumpRev(env, id),
+  ]);
+  return json({ session: sessionJson(await sessionOr404(env, id)) });
+}
+
 async function newToken(env: Env, id: string): Promise<Response> {
   await sessionOr404(env, id);
   const token = randomToken();
@@ -282,7 +357,7 @@ async function resetResponses(env: Env, id: string): Promise<Response> {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM responses WHERE session_id = ?').bind(id),
     // Tells students' devices to forget their progress in the game.
-    env.DB.prepare("UPDATE sessions SET settings = json_set(settings, '$.resetAt', unixepoch()) WHERE id = ?").bind(id),
+    env.DB.prepare("UPDATE sessions SET settings = json_remove(json_set(settings, '$.resetAt', unixepoch()), '$.endsAt') WHERE id = ?").bind(id),
     bumpRev(env, id),
   ]);
   return json({ ok: true });
@@ -395,7 +470,8 @@ async function restore(env: Env, request: Request): Promise<Response> {
     if (!valid) throw new HttpError(400, 'bad_backup');
     const answer = validateAnswer(session.game, r.answer);
     const taskGame = TASK_GAMES.includes(session.game);
-    const round = taskGame ? r.round : 0;
+    // A mapping student has many objects, told apart by their number.
+    const round = taskGame || (session.game === 'mapping' && typeof r.round === 'number') ? r.round : 0;
     const task = taskGame && typeof round === 'number' ? session.tasks[round] : undefined;
     if (taskGame && !task) throw new HttpError(400, 'bad_backup');
     // Scores are worked out again, so an edited file can't change them.
@@ -461,6 +537,8 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
       if (method === 'DELETE') return deleteSession(env, id);
     } else if (child === 'token' && method === 'POST') {
       return newToken(env, id);
+    } else if (child === 'timer' && method === 'POST') {
+      return setTimer(env, request, id);
     } else if (child === 'responses') {
       if (method === 'GET') return listResponses(env, url, id);
       if (method === 'DELETE') return resetResponses(env, id);

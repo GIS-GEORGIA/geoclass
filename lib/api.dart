@@ -89,6 +89,11 @@ class Api {
   Future<void> updateSession(String id, Map<String, dynamic> changes) => _send('PATCH', 'sessions/$id', changes);
   Future<void> deleteSession(String id) => _send('DELETE', 'sessions/$id');
   Future<void> resetResponses(String id) => _send('DELETE', 'sessions/$id/responses');
+  Future<void> setTimer(String id, {required int seconds, List<double>? center, double? zoom}) => _send('POST', 'sessions/$id/timer', {
+        'seconds': seconds,
+        'center': ?center,
+        'zoom': ?zoom,
+      });
   Future<String> newToken(String id) async => (await _send('POST', 'sessions/$id/token'))['token'] as String;
 
   Future<Polled> poll(String id, int? rev) async {

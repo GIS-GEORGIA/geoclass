@@ -251,7 +251,7 @@ class _SessionListState extends State<_SessionList> {
                 onChanged: (v) => setDialog(() => game = v!),
                 child: Column(
                   children: [
-                    for (final g in const ['travel', 'coordinates', 'aerial'])
+                    for (final g in const ['travel', 'coordinates', 'aerial', 'mapping'])
                       RadioListTile<String>(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
@@ -279,7 +279,7 @@ class _SessionListState extends State<_SessionList> {
             TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s['cancel'])),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, ctl.text),
-              child: Text(game == 'travel' ? s['create'] : s['next']),
+              child: Text(game == 'travel' || game == 'mapping' ? s['create'] : s['next']),
             ),
           ],
         ),
@@ -389,6 +389,7 @@ class _SessionListState extends State<_SessionList> {
                                 leading: Icon(switch (x.game) {
                                   'coordinates' => Icons.my_location,
                                   'aerial' => Icons.satellite_alt,
+                                  'mapping' => Icons.draw,
                                   _ => Icons.travel_explore,
                                 }),
                                 title: Text(x.name),

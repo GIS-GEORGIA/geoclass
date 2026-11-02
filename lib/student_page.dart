@@ -10,6 +10,7 @@ import 'api.dart';
 import 'coordinates_play.dart';
 import 'geo_map.dart';
 import 'l10n.dart';
+import 'mapping_play.dart';
 import 'models.dart';
 import 'places.dart';
 import 'queue.dart';
@@ -42,6 +43,8 @@ class _StudentPageState extends State<StudentPage> {
   String _game = 'travel';
   List<CoordTask> _tasks = const [];
   int _resetAt = 0;
+  Map<String, dynamic> _settings = const {};
+  int _now = 0;
   String? _error;
   bool _busy = false;
 
@@ -101,6 +104,8 @@ class _StudentPageState extends State<StudentPage> {
       final settings = data['settings'] as Map<String, dynamic>? ?? const {};
       _tasks = CoordTask.listFrom(settings);
       _resetAt = settings['resetAt'] as int? ?? 0;
+      _settings = settings;
+      _now = data['now'] as int? ?? deviceSeconds();
       _stage = _Stage.form;
     });
   }
@@ -225,6 +230,14 @@ class _StudentPageState extends State<StudentPage> {
         _Stage.queued => _message(Icons.cloud_upload, s['queued_title'], body: s['queued_body'], action: _flush, actionLabel: s['retry']),
         _Stage.form when _status == 'paused' => _message(Icons.pause_circle, s['session_paused'], action: _load, actionLabel: s['retry']),
         _Stage.form when _status == 'closed' => _message(Icons.lock, s['session_closed']),
+        _Stage.form when _game == 'mapping' => MappingPlay(
+            s: s,
+            token: widget.token,
+            settings: _settings,
+            now: _now,
+            api: _api,
+            onStopped: (status) => setState(() => _status = status),
+          ),
         _Stage.form when _game != 'travel' => CoordinatesPlay(
             s: s,
             lang: widget.settings.lang,

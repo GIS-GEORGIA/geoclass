@@ -18,8 +18,8 @@
       "migrations_dir": "migrations"
     }
   ],
-  // A whole class shares one IP address, so this limit is generous.
+  // A whole class shares one IP address and the mapping game sends many objects, so this limit is generous.
   "ratelimits": [
-    { "name": "SUBMIT_LIMIT", "namespace_id": "1001", "simple": { "limit": 120, "period": 60 } }
+    { "name": "SUBMIT_LIMIT", "namespace_id": "1001", "simple": { "limit": 600, "period": 60 } }
   ]
 }

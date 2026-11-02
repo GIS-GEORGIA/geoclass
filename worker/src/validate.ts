@@ -9,6 +9,10 @@ const COMPANY = ['alone', 'family', 'friends', 'class'];
 const MODES = ['to_map', 'read'];
 const FORMATS = ['dd', 'dm', 'dms', 'utm'];
 const MAX_TASKS = 30;
+const KINDS = ['point', 'line', 'polygon'];
+const CATEGORIES = ['food', 'icecream', 'cinema', 'stadium', 'square', 'park', 'attraction', 'school', 'shop', 'museum', 'other'];
+const MIN_VERTICES: Record<string, number> = { point: 1, line: 2, polygon: 3 };
+const MAX_VERTICES = 100;
 // A file directly in web/aerial, so a task can't point anywhere else.
 const PHOTO_RE = /^[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)$/;
 
@@ -24,7 +28,7 @@ function oneOf(value: unknown, allowed: string[]): string {
 }
 
 /** Returns only the known fields, so nothing else a client sends gets stored. */
-export function validateAnswer(game: string, raw: unknown): Record<string, string> {
+export function validateAnswer(game: string, raw: unknown): Record<string, unknown> {
   if (typeof raw !== 'object' || raw === null) throw new HttpError(400, 'bad_answer');
   const a = raw as Record<string, unknown>;
   if (game === 'travel') {
@@ -43,6 +47,21 @@ export function validateAnswer(game: string, raw: unknown): Record<string, strin
   }
   // The round and the point say everything about an aerial answer.
   if (game === 'aerial') return {};
+  if (game === 'mapping') {
+    const kind = oneOf(a.kind, KINDS);
+    if (!Array.isArray(a.coords) || a.coords.length < MIN_VERTICES[kind] || a.coords.length > MAX_VERTICES) {
+      throw new HttpError(400, 'bad_answer');
+    }
+    if (kind === 'point' && a.coords.length !== 1) throw new HttpError(400, 'bad_answer');
+    const coords = a.coords.map((c: unknown) => {
+      const [lon, lat] = Array.isArray(c) ? c : [];
+      if (typeof lon !== 'number' || typeof lat !== 'number' || !(Math.abs(lat) <= 90) || !(Math.abs(lon) <= 180)) {
+        throw new HttpError(400, 'bad_answer');
+      }
+      return [Math.round(lon * 1e6) / 1e6, Math.round(lat * 1e6) / 1e6];
+    });
+    return { kind, category: oneOf(a.category, CATEGORIES), coords };
+  }
   throw new HttpError(400, 'bad_game');
 }
 
@@ -72,6 +91,11 @@ export function validateTasks(game: string, raw: unknown): Task[] {
     if (!MODES.includes(t.mode as string) || !FORMATS.includes(t.format as string)) throw new HttpError(400, 'bad_tasks');
     return { lat, lon, mode: t.mode as string, format: t.format as string, label: typeof t.label === 'string' ? t.label : '' };
   });
+}
+
+/** The middle of a drawn object's vertices, as [lon, lat]. */
+export function middle(coords: number[][]): [number, number] {
+  return [coords.reduce((sum, c) => sum + c[0], 0) / coords.length, coords.reduce((sum, c) => sum + c[1], 0) / coords.length];
 }
 
 /** Great-circle distance in metres. lib/coords.dart uses the same formula for instant feedback. */

@@ -1,9 +1,13 @@
+/// The device's clock, in the seconds the server uses.
+int deviceSeconds() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
 class SessionInfo {
   final String id, name, game, status;
   final int rev, createdAt;
   final bool archived;
   final int? responses;
   final Map<String, dynamic> settings;
+  final int clockOffset; // server minus device, in seconds
 
   const SessionInfo({
     required this.id,
@@ -15,7 +19,10 @@ class SessionInfo {
     required this.archived,
     this.responses,
     this.settings = const {},
+    this.clockOffset = 0,
   });
+
+  int get serverNow => deviceSeconds() + clockOffset;
 
   factory SessionInfo.fromJson(Map<String, dynamic> j) => SessionInfo(
         id: j['id'] as String,
@@ -27,6 +34,7 @@ class SessionInfo {
         archived: j['archived'] as bool,
         responses: j['responses'] as int?,
         settings: j['settings'] as Map<String, dynamic>? ?? const {},
+        clockOffset: (j['now'] as int? ?? deviceSeconds()) - deviceSeconds(),
       );
 }
 

@@ -6,15 +6,18 @@ import 'package:latlong2/latlong.dart';
 import 'coordinates_session_page.dart';
 import 'export.dart';
 import 'geo_map.dart';
+import 'mapping_session_page.dart';
 import 'models.dart';
 import 'places.dart';
 import 'session_base.dart';
 import 'settings.dart';
 
 /// The page for a session, according to its game.
-Widget sessionPageFor(Settings settings, SessionInfo session, {bool showQr = false}) => session.game != 'travel'
-    ? CoordinatesSessionPage(settings: settings, session: session, showQrOnOpen: showQr)
-    : TravelSessionPage(settings: settings, session: session, showQrOnOpen: showQr);
+Widget sessionPageFor(Settings settings, SessionInfo session, {bool showQr = false}) => switch (session.game) {
+      'travel' => TravelSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
+      'mapping' => MappingSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
+      _ => CoordinatesSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
+    };
 
 /// The travel game: live answers on the map, moderation and statistics.
 class TravelSessionPage extends SessionPageBase {
