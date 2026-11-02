@@ -61,7 +61,9 @@ type SessionRow = {
 };
 
 const SESSION_COLUMNS = 'id, name, game, status, rev, archived, settings, created_at';
-const GAMES = ['travel', 'coordinates'];
+const GAMES = ['travel', 'coordinates', 'aerial'];
+// Games made of tasks that the server scores.
+const TASK_GAMES = ['coordinates', 'aerial'];
 
 function sessionJson(s: SessionRow, count?: number) {
   return {
@@ -176,7 +178,7 @@ async function submit(env: Env, request: Request): Promise<Response> {
     .first<{ n: number }>();
   if ((count?.n ?? 0) >= MAX_RESPONSES_PER_SESSION) throw new HttpError(429, 'session_full');
 
-  if (s.game === 'coordinates') {
+  if (TASK_GAMES.includes(s.game)) {
     const tasks = (JSON.parse(s.settings) as { tasks: Task[] }).tasks;
     const task = typeof body.round === 'number' ? tasks[body.round] : undefined;
     if (!task) throw new HttpError(400, 'bad_round');
@@ -218,7 +220,7 @@ async function createSession(env: Env, request: Request): Promise<Response> {
   const body = await readBody<{ name?: unknown; game?: unknown; tasks?: unknown }>(request);
   const name = cleanName(body.name);
   if (typeof body.game !== 'string' || !GAMES.includes(body.game)) throw new HttpError(400, 'bad_game');
-  const settings = body.game === 'coordinates' ? { tasks: validateTasks(body.tasks) } : {};
+  const settings = TASK_GAMES.includes(body.game) ? { tasks: validateTasks(body.game, body.tasks) } : {};
   const id = crypto.randomUUID();
   const token = randomToken();
   await env.DB.prepare('INSERT INTO sessions (id, name, game, token_hash, settings, created_at) VALUES (?, ?, ?, ?, ?, ?)')
@@ -337,9 +339,9 @@ type BackupResponse = {
   createdAt?: unknown;
 };
 
-function restoredTasks(raw: unknown): Task[] {
+function restoredTasks(game: string, raw: unknown): Task[] {
   try {
-    return validateTasks(raw);
+    return validateTasks(game, raw);
   } catch {
     throw new HttpError(400, 'bad_backup');
   }
@@ -361,7 +363,7 @@ async function restore(env: Env, request: Request): Promise<Response> {
     if (typeof s.id !== 'string' || !ID_RE.test(s.id) || typeof s.game !== 'string' || !GAMES.includes(s.game) || typeof s.createdAt !== 'number') {
       throw new HttpError(400, 'bad_backup');
     }
-    const tasks = s.game === 'coordinates' ? restoredTasks(s.settings?.tasks) : [];
+    const tasks = TASK_GAMES.includes(s.game) ? restoredTasks(s.game, s.settings?.tasks) : [];
     games.set(s.id, { game: s.game, tasks });
     statements.push(
       env.DB.prepare(
@@ -372,7 +374,7 @@ async function restore(env: Env, request: Request): Promise<Response> {
         s.game,
         await sha256(randomToken()),
         s.archived === true ? 1 : 0,
-        JSON.stringify(s.game === 'coordinates' ? { tasks } : {}),
+        JSON.stringify(TASK_GAMES.includes(s.game) ? { tasks } : {}),
         s.createdAt,
       ),
     );
@@ -392,9 +394,10 @@ async function restore(env: Env, request: Request): Promise<Response> {
       typeof r.createdAt === 'number';
     if (!valid) throw new HttpError(400, 'bad_backup');
     const answer = validateAnswer(session.game, r.answer);
-    const round = session.game === 'coordinates' ? r.round : 0;
-    const task = session.game === 'coordinates' && typeof round === 'number' ? session.tasks[round] : undefined;
-    if (session.game === 'coordinates' && !task) throw new HttpError(400, 'bad_backup');
+    const taskGame = TASK_GAMES.includes(session.game);
+    const round = taskGame ? r.round : 0;
+    const task = taskGame && typeof round === 'number' ? session.tasks[round] : undefined;
+    if (taskGame && !task) throw new HttpError(400, 'bad_backup');
     // Scores are worked out again, so an edited file can't change them.
     const distance = task ? distanceM(r.lat as number, r.lon as number, task.lat, task.lon) : null;
     statements.push(

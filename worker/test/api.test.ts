@@ -395,3 +395,62 @@ describe('coordinates game', () => {
     expect((await responses('old-session-1')).responses).toHaveLength(1);
   });
 });
+
+describe('aerial game', () => {
+  const tasks = [
+    { lat: 41.7, lon: 44.8, photo: 'p01.jpg', label: 'თბილისი', labelEn: 'Tbilisi', mode: 'ignored', format: 'ignored' },
+    { lat: 42.27, lon: 42.7, photo: 'p02.webp', label: 'ქუთაისი', labelEn: 'Kutaisi' },
+  ];
+
+  async function game() {
+    const res = await call('POST', 'sessions', { name: 'Photos', game: 'aerial', tasks });
+    expect(res.status).toBe(201);
+    return (await res.json()) as { session: { id: string; settings: { tasks: Record<string, unknown>[] } }; token: string };
+  }
+
+  const play = (token: string, over: Record<string, unknown> = {}) =>
+    send(token, { participantId: 'aerial-player-0001', answer: { junk: 'x' }, lat: 41.79, lon: 44.8, round: 0, ...over });
+
+  it('stores tasks in one fixed shape', async () => {
+    const { session } = await game();
+    expect(session.settings.tasks[0]).toEqual({ lat: 41.7, lon: 44.8, mode: 'photo', format: 'dd', label: 'თბილისი', labelEn: 'Tbilisi', photo: 'p01.jpg' });
+  });
+
+  it('refuses a photo that is not a plain file name', async () => {
+    for (const photo of [undefined, '', '../secret.jpg', 'a/b.jpg', 'https://example.com/a.jpg', 'a.svg', 'a b.jpg']) {
+      const res = await call('POST', 'sessions', { name: 'x', game: 'aerial', tasks: [{ ...tasks[1], photo }] });
+      expect(res.status, String(photo)).toBe(400);
+    }
+  });
+
+  it('scores on the server and keeps only the first try', async () => {
+    const { session, token } = await game();
+    expect((await play(token)).status).toBe(201);
+    await play(token, { lat: 41.7 });
+    const { responses: rows } = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as {
+      responses: { score: number; answer: unknown }[];
+    };
+    expect(rows).toHaveLength(1);
+    expect(rows[0].score).toBe(50);
+    expect(rows[0].answer).toEqual({});
+  });
+
+  it('refuses a round outside the task list', async () => {
+    const { token } = await game();
+    expect((await play(token, { round: 2 })).status).toBe(400);
+  });
+
+  it('survives backup and restore', async () => {
+    const { session, token } = await game();
+    await play(token);
+    const backup = (await (await call('GET', `backup?session=${session.id}`)).json()) as { sessions: { id: string }[] };
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', backup)).status).toBe(200);
+    const restored = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as {
+      session: { settings: { tasks: { photo: string }[] } };
+      responses: { score: number }[];
+    };
+    expect(restored.session.settings.tasks[1].photo).toBe('p02.webp');
+    expect(restored.responses[0].score).toBe(50);
+  });
+});

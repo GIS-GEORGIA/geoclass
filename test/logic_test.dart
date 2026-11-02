@@ -1,8 +1,10 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'dart:io';
 import 'dart:math';
 
+import 'package:geoclass/aerial_setup_page.dart';
 import 'package:geoclass/api.dart';
 import 'package:geoclass/coordinates_setup_page.dart';
 import 'package:geoclass/coords.dart';
@@ -10,6 +12,7 @@ import 'package:geoclass/export.dart';
 import 'package:geoclass/l10n.dart';
 import 'package:geoclass/main.dart';
 import 'package:geoclass/models.dart';
+import 'package:geoclass/photos.dart';
 import 'package:geoclass/nicknames.dart';
 import 'package:geoclass/places.dart';
 import 'package:geoclass/queue.dart';
@@ -384,6 +387,42 @@ void main() {
       final feature = (data['features'] as List).single as Map<String, dynamic>;
       expect(feature['geometry']['coordinates'], [44.81, 41.71]);
       expect(feature['properties']['score'], 80);
+    });
+  });
+
+  group('aerial photos', () {
+    test('the list reads good entries and leaves out mistakes', () {
+      final photos = parsePhotos('''[
+        {"file": "p01.jpg", "ka": "თბილისი", "en": "Tbilisi", "lat": 41.7, "lon": 44.8},
+        {"file": "p02.webp", "ka": "ქუთაისი", "lat": 42, "lon": 42},
+        {"file": "../p03.jpg", "ka": "x", "lat": 1, "lon": 1},
+        {"file": "p04.jpg", "ka": "", "lat": 1, "lon": 1},
+        {"file": "p05.jpg", "ka": "x", "lat": 95, "lon": 1},
+        {"file": "p06.jpg", "ka": "x", "lon": 1},
+        "nonsense"
+      ]''');
+      expect(photos.map((p) => p.file), ['p01.jpg', 'p02.webp']);
+      expect(photos[0].en, 'Tbilisi');
+      expect(photos[1].lat, 42.0);
+    });
+
+    test('a task keeps its photo and uses the right language', () {
+      const photo = Photo(file: 'p.jpg', ka: 'თბილისი', en: 'Tbilisi', lat: 41.7, lon: 44.8);
+      final task = CoordTask.fromJson(taskFromPhoto(photo).toJson());
+      expect(task.photo, 'p.jpg');
+      expect(task.mode, 'photo');
+      expect(task.labelFor('ka'), 'თბილისი');
+      expect(task.labelFor('en'), 'Tbilisi');
+      expect(const CoordTask(lat: 1, lon: 1, mode: 'photo', format: 'dd', label: 'ბათუმი').labelFor('en'), 'ბათუმი');
+    });
+
+    // Fails with a clear message when a photo is added with a mistake.
+    test('every entry in web/aerial/index.json is valid and its file exists', () {
+      final raw = File('web/aerial/index.json').readAsStringSync();
+      expect(parsePhotos(raw).length, (jsonDecode(raw) as List).length, reason: 'an entry has a mistake');
+      for (final p in parsePhotos(raw)) {
+        expect(File('web/aerial/${p.file}').existsSync(), isTrue, reason: '${p.file} is listed but missing');
+      }
     });
   });
 }

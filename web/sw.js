@@ -20,6 +20,8 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) {
     return;
   }
+  // Photos added by the teacher must show up at once.
+  if (url.pathname === '/aerial/index.json') return;
   // Serve from cache at once and refresh it behind the scenes, so the next visit gets updates.
   event.respondWith(
     (async () => {

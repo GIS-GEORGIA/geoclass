@@ -12,7 +12,7 @@ import 'session_base.dart';
 import 'settings.dart';
 
 /// The page for a session, according to its game.
-Widget sessionPageFor(Settings settings, SessionInfo session, {bool showQr = false}) => session.game == 'coordinates'
+Widget sessionPageFor(Settings settings, SessionInfo session, {bool showQr = false}) => session.game != 'travel'
     ? CoordinatesSessionPage(settings: settings, session: session, showQrOnOpen: showQr)
     : TravelSessionPage(settings: settings, session: session, showQrOnOpen: showQr);
 

@@ -74,9 +74,20 @@ class CoordTask {
   final double lat, lon;
   final String mode; // to_map: coordinates are given, find the point. read: a point is given, write its coordinates.
   final String format; // dd, dms or utm
-  final String label;
+  final String label, labelEn;
+  final String photo; // aerial game: a file in web/aerial
 
-  const CoordTask({required this.lat, required this.lon, required this.mode, required this.format, this.label = ''});
+  const CoordTask({
+    required this.lat,
+    required this.lon,
+    required this.mode,
+    required this.format,
+    this.label = '',
+    this.labelEn = '',
+    this.photo = '',
+  });
+
+  String labelFor(String lang) => lang == 'en' && labelEn.isNotEmpty ? labelEn : label;
 
   factory CoordTask.fromJson(Map<String, dynamic> j) => CoordTask(
         lat: (j['lat'] as num).toDouble(),
@@ -84,9 +95,19 @@ class CoordTask {
         mode: j['mode'] as String,
         format: j['format'] as String,
         label: j['label'] as String? ?? '',
+        labelEn: j['labelEn'] as String? ?? '',
+        photo: j['photo'] as String? ?? '',
       );
 
-  Map<String, dynamic> toJson() => {'lat': lat, 'lon': lon, 'mode': mode, 'format': format, 'label': label};
+  Map<String, dynamic> toJson() => {
+        'lat': lat,
+        'lon': lon,
+        'mode': mode,
+        'format': format,
+        'label': label,
+        if (labelEn.isNotEmpty) 'labelEn': labelEn,
+        if (photo.isNotEmpty) 'photo': photo,
+      };
 
   static List<CoordTask> listFrom(Map<String, dynamic> settings) => [
         for (final t in settings['tasks'] as List? ?? const []) CoordTask.fromJson(t as Map<String, dynamic>),

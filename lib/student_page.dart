@@ -225,7 +225,7 @@ class _StudentPageState extends State<StudentPage> {
         _Stage.queued => _message(Icons.cloud_upload, s['queued_title'], body: s['queued_body'], action: _flush, actionLabel: s['retry']),
         _Stage.form when _status == 'paused' => _message(Icons.pause_circle, s['session_paused'], action: _load, actionLabel: s['retry']),
         _Stage.form when _status == 'closed' => _message(Icons.lock, s['session_closed']),
-        _Stage.form when _game == 'coordinates' => CoordinatesPlay(
+        _Stage.form when _game != 'travel' => CoordinatesPlay(
             s: s,
             lang: widget.settings.lang,
             token: widget.token,

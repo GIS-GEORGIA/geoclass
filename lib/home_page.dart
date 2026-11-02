@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'aerial_setup_page.dart';
 import 'api.dart';
 import 'coordinates_setup_page.dart';
 import 'l10n.dart';
@@ -171,7 +172,7 @@ class _SessionListState extends State<_SessionList> {
                 onChanged: (v) => setDialog(() => game = v!),
                 child: Column(
                   children: [
-                    for (final g in const ['travel', 'coordinates'])
+                    for (final g in const ['travel', 'coordinates', 'aerial'])
                       RadioListTile<String>(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
@@ -199,7 +200,7 @@ class _SessionListState extends State<_SessionList> {
             TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s['cancel'])),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, ctl.text),
-              child: Text(game == 'coordinates' ? s['next'] : s['create']),
+              child: Text(game == 'travel' ? s['create'] : s['next']),
             ),
           ],
         ),
@@ -212,6 +213,11 @@ class _SessionListState extends State<_SessionList> {
     if (game == 'coordinates') {
       tasks = await Navigator.of(context).push<List<CoordTask>>(MaterialPageRoute(
         builder: (_) => CoordinatesSetupPage(s: s),
+      ));
+      if (tasks == null) return;
+    } else if (game == 'aerial') {
+      tasks = await Navigator.of(context).push<List<CoordTask>>(MaterialPageRoute(
+        builder: (_) => AerialSetupPage(s: s, lang: widget.settings.lang),
       ));
       if (tasks == null) return;
     }
@@ -296,7 +302,11 @@ class _SessionListState extends State<_SessionList> {
                           for (final x in visible)
                             Card(
                               child: ListTile(
-                                leading: Icon(x.game == 'coordinates' ? Icons.my_location : Icons.travel_explore),
+                                leading: Icon(switch (x.game) {
+                                  'coordinates' => Icons.my_location,
+                                  'aerial' => Icons.satellite_alt,
+                                  _ => Icons.travel_explore,
+                                }),
                                 title: Text(x.name),
                                 subtitle: Text([
                                   s['game_${x.game}'],

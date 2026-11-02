@@ -4,13 +4,13 @@ Classroom geography games. The teacher shows a QR code, students answer anonymou
 
 საკლასო გეოგრაფიული თამაშები. მასწავლებელი აჩვენებს QR კოდს, მოსწავლეები ტელეფონიდან ანონიმურად პასუხობენ, პასუხები კი პირდაპირ რუკაზე ჩნდება.
 
-**Status:** Stage 2 of 4. The travel and coordinates games work from QR code to live map. Live at https://geoclass.qgis.ge.
+**Status:** Stage 3 of 4. The travel, coordinates and aerial photo games work from QR code to live map. Live at https://geoclass.qgis.ge.
 
 | Stage | Contents | Status |
 |---|---|---|
 | 1 | Sessions, QR, "Where would you travel?", live map, layers, search, backup, reset | Done |
 | 2 | Coordinates game (DD, DMS, UTM 37N/38N), leaderboard, links to Google Maps and OpenStreetMap | Done |
-| 3 | Aerial photo guessing game | Planned |
+| 3 | Aerial photo guessing game, from our own photos | Done |
 | 4 | Android release build for Google Play | Planned |
 
 ## Features
@@ -34,6 +34,25 @@ The teacher picks random Georgian places, taps the map or types coordinates, up 
 Coordinates are decimal degrees (DD), degrees-minutes-seconds (DMS) or rectangular UTM on the WGS84 datum. The map shows a matching grid. After each task the student sees the miss in metres, the score, both points in all three formats, and links to Google Maps and OpenStreetMap.
 
 The score is 100 within 1 km, 50 at 10 km and 0 from 100 km, on a logarithmic scale. The Worker works it out from the coordinates, and only the first try at each task counts. The leaderboard shows nicknames like „ლურჯი მელა“ made from the random student id, so no name is asked for or stored.
+
+## The aerial photo game
+
+The student sees a photo, taps the map where they think it is, and is scored by distance as in the coordinates game. On the teacher's map the answer stays hidden until the eye button is pressed, so the page can be projected during play.
+
+Photos come only from this repository, with no outside imagery service:
+
+1. Put the files in `web/aerial/`. Use JPEG, PNG or WebP, with names of letters, digits, `-` and `_` only. About 1600 px wide and under 500 KB keeps them quick on phones.
+2. List each one in `web/aerial/index.json`:
+
+   ```json
+   [
+     { "file": "p01.jpg", "ka": "თბილისი", "en": "Tbilisi", "lat": 41.6938, "lon": 44.8015 }
+   ]
+   ```
+
+3. Run `flutter test`, which names any mistake in the list, then build and deploy as usual.
+
+Students' phones receive the photo names and coordinates so the app can score offline. A student who reads the page's network traffic could find them, and this is a classroom game, so that is accepted. Neutral file names like `p01.jpg` and photos without GPS data in the file avoid giving the answer away more easily.
 
 ## How it fits together
 

@@ -14,9 +14,10 @@ import 'geo_map.dart';
 import 'l10n.dart';
 import 'models.dart';
 import 'nicknames.dart';
+import 'photos.dart';
 import 'queue.dart';
 
-/// The student's side of the coordinates game: one task at a time, with the result after each.
+/// The student's side of the coordinates and aerial games: one task at a time, with the result after each.
 class CoordinatesPlay extends StatefulWidget {
   final S s;
   final String lang;
@@ -95,6 +96,13 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
     if (!mounted) return;
     setState(() => _loaded = true);
     _send();
+    _preloadPhoto();
+  }
+
+  // The next photo is ready at once, and stays available if the connection drops.
+  void _preloadPhoto() {
+    final photo = _task?.photo ?? '';
+    if (photo.isNotEmpty) precacheImage(NetworkImage(photoUrl(photo)), context, onError: (_, _) {});
   }
 
   Future<void> _saveProgress() async => (await SharedPreferences.getInstance())
@@ -164,6 +172,7 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
       _total += score;
       _round++;
     });
+    _preloadPhoto();
     await _saveProgress();
   }
 
@@ -196,6 +205,7 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
   Widget _taskView(CoordTask task) {
     final text = Theme.of(context).textTheme;
     final readMode = task.mode == 'read';
+    final photoMode = task.mode == 'photo';
     final zone = utmZone(task.lon);
     final center = readMode ? LatLng(task.lat, task.lon) : const LatLng(42.2, 43.5);
     return _page([
@@ -204,20 +214,23 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
       const SizedBox(height: 4),
       Text(s.f('play_nick', [nickname(_participant, widget.lang)]), style: text.bodySmall),
       const SizedBox(height: 12),
-      Text(s[readMode ? 'play_read' : 'play_to_map'], style: text.titleLarge),
+      Text(s[photoMode ? 'play_photo' : (readMode ? 'play_read' : 'play_to_map')], style: text.titleLarge),
       const SizedBox(height: 8),
-      if (!readMode)
+      if (photoMode)
+        TaskPhoto(s: s, file: task.photo, height: 200)
+      else if (!readMode)
         SelectableText(
           formatAs(task.format, task.lat, task.lon),
           style: text.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
       const SizedBox(height: 4),
-      Text(s[readMode ? 'play_read_hint' : 'play_to_map_hint'], style: text.bodyMedium),
+      Text(s[photoMode ? 'play_photo_hint' : (readMode ? 'play_read_hint' : 'play_to_map_hint')], style: text.bodyMedium),
       const SizedBox(height: 12),
       ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: SizedBox(
-          height: 360,
+          // Photo and map both fit on a phone, so the student can compare them.
+          height: photoMode ? 300 : 360,
           child: FlutterMap(
             key: ValueKey(_round),
             options: MapOptions(
@@ -229,7 +242,7 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
             ),
             children: [
               ...baseLayers(BaseMap.osm, 1),
-              _grid(task.format, zone),
+              if (!photoMode) _grid(task.format, zone),
               MarkerLayer(markers: [
                 if (readMode)
                   Marker(
@@ -297,8 +310,12 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
       Text(s.f('result_score', [r.score]), style: text.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
       const SizedBox(height: 4),
       Text(s.f('result_distance', [formatDistance(r.distance)]), style: text.titleMedium),
-      if (task.label.isNotEmpty) Text(s.f('result_was', [task.label]), style: text.titleMedium),
+      if (task.label.isNotEmpty) Text(s.f('result_was', [task.labelFor(widget.lang)]), style: text.titleMedium),
       const SizedBox(height: 12),
+      if (task.photo.isNotEmpty) ...[
+        TaskPhoto(s: s, file: task.photo, height: 180),
+        const SizedBox(height: 12),
+      ],
       ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: SizedBox(

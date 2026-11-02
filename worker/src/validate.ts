@@ -9,6 +9,8 @@ const COMPANY = ['alone', 'family', 'friends', 'class'];
 const MODES = ['to_map', 'read'];
 const FORMATS = ['dd', 'dms', 'utm'];
 const MAX_TASKS = 30;
+// A file directly in web/aerial, so a task can't point anywhere else.
+const PHOTO_RE = /^[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)$/;
 
 function text(value: unknown, max: number, required: boolean): string {
   const s = typeof value === 'string' ? value.trim() : '';
@@ -39,12 +41,14 @@ export function validateAnswer(game: string, raw: unknown): Record<string, strin
   if (game === 'coordinates') {
     return { raw: text(a.raw, 60, false), format: oneOf(a.format, FORMATS), mode: oneOf(a.mode, MODES) };
   }
+  // The round and the point say everything about an aerial answer.
+  if (game === 'aerial') return {};
   throw new HttpError(400, 'bad_game');
 }
 
-export type Task = { lat: number; lon: number; mode: string; format: string; label: string };
+export type Task = { lat: number; lon: number; mode: string; format: string; label: string; labelEn?: string; photo?: string };
 
-export function validateTasks(raw: unknown): Task[] {
+export function validateTasks(game: string, raw: unknown): Task[] {
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_TASKS) throw new HttpError(400, 'bad_tasks');
   return raw.map((t: Record<string, unknown>) => {
     const { lat, lon } = t ?? {};
@@ -52,6 +56,19 @@ export function validateTasks(raw: unknown): Task[] {
       throw new HttpError(400, 'bad_tasks');
     }
     if (typeof t.label === 'string' && t.label.length > 120) throw new HttpError(400, 'bad_tasks');
+    if (game === 'aerial') {
+      if (typeof t.photo !== 'string' || !PHOTO_RE.test(t.photo)) throw new HttpError(400, 'bad_tasks');
+      if (typeof t.labelEn === 'string' && t.labelEn.length > 120) throw new HttpError(400, 'bad_tasks');
+      return {
+        lat,
+        lon,
+        mode: 'photo',
+        format: 'dd',
+        label: typeof t.label === 'string' ? t.label : '',
+        labelEn: typeof t.labelEn === 'string' ? t.labelEn : '',
+        photo: t.photo,
+      };
+    }
     if (!MODES.includes(t.mode as string) || !FORMATS.includes(t.format as string)) throw new HttpError(400, 'bad_tasks');
     return { lat, lon, mode: t.mode as string, format: t.format as string, label: typeof t.label === 'string' ? t.label : '' };
   });

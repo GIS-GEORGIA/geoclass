@@ -7,9 +7,10 @@ import 'export.dart';
 import 'geo_map.dart';
 import 'models.dart';
 import 'nicknames.dart';
+import 'photos.dart';
 import 'session_base.dart';
 
-/// The coordinates game: where students placed each task's point, and the leaderboard.
+/// The coordinates and aerial games: where students placed each task's point, and the leaderboard.
 class CoordinatesSessionPage extends SessionPageBase {
   const CoordinatesSessionPage({super.key, required super.settings, required super.session, super.showQrOnOpen});
   @override
@@ -26,6 +27,10 @@ class _CoordinatesSessionPageState extends SessionPageState<CoordinatesSessionPa
   List<CoordAnswer> _answers = const [];
   int _task = 0;
   bool _showTasks = false;
+  // A projected photo must not show its answer until the teacher chooses to.
+  late bool _reveal = !_hidesAnswers;
+
+  bool get _hidesAnswers => widget.session.game == 'aerial';
 
   List<CoordTask> get _tasks => CoordTask.listFrom(session.settings);
   List<CoordAnswer> get _taskAnswers => _answers.where((a) => a.round == _task).toList();
@@ -38,7 +43,9 @@ class _CoordinatesSessionPageState extends SessionPageState<CoordinatesSessionPa
     final tasks = _tasks;
     if (tasks.isEmpty) return const [];
     final t = tasks[_task];
-    return [LatLng(t.lat, t.lon), for (final a in _taskAnswers) LatLng(a.lat, a.lon)];
+    final answers = [for (final a in _taskAnswers) LatLng(a.lat, a.lon)];
+    if (_reveal) return [LatLng(t.lat, t.lon), ...answers];
+    return answers.isEmpty ? const [LatLng(42.2, 43.5)] : answers;
   }
 
   @override
@@ -59,6 +66,7 @@ class _CoordinatesSessionPageState extends SessionPageState<CoordinatesSessionPa
   void _select(int task) {
     setState(() {
       _task = task;
+      _reveal = !_hidesAnswers;
       showMapTab();
     });
     fitAll();
@@ -74,7 +82,7 @@ class _CoordinatesSessionPageState extends SessionPageState<CoordinatesSessionPa
     return [
       PolylineLayer(polylines: [
         for (final a in answers)
-          Polyline(
+          if (_reveal) Polyline(
             points: [LatLng(a.lat, a.lon), target],
             color: scoreColor(a.score).withValues(alpha: 0.5),
             strokeWidth: 2,
@@ -97,7 +105,7 @@ class _CoordinatesSessionPageState extends SessionPageState<CoordinatesSessionPa
               ),
             ),
           ),
-        Marker(
+        if (_reveal) Marker(
           point: target,
           width: 40,
           height: 40,
@@ -131,13 +139,30 @@ class _CoordinatesSessionPageState extends SessionPageState<CoordinatesSessionPa
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(s.f('play_task', [_task + 1, tasks.length]), style: Theme.of(context).textTheme.titleSmall),
-                    Text(formatAs(t.format, t.lat, t.lon), style: Theme.of(context).textTheme.bodySmall),
+                    if (_reveal)
+                      Text(
+                        t.photo.isEmpty ? formatAs(t.format, t.lat, t.lon) : t.labelFor(lang),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    if (t.photo.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      SizedBox(width: 180, child: TaskPhoto(key: ValueKey(t.photo), s: s, file: t.photo, height: 110)),
+                    ],
                   ],
                 ),
                 IconButton(
                   icon: const Icon(Icons.chevron_right),
                   onPressed: _task < tasks.length - 1 ? () => _select(_task + 1) : null,
                 ),
+                if (_hidesAnswers)
+                  IconButton(
+                    tooltip: s[_reveal ? 'answer_hide' : 'answer_show'],
+                    icon: Icon(_reveal ? Icons.visibility : Icons.visibility_off),
+                    onPressed: () {
+                      setState(() => _reveal = !_reveal);
+                      fitAll();
+                    },
+                  ),
               ],
             ),
           ),
@@ -215,7 +240,11 @@ class _CoordinatesSessionPageState extends SessionPageState<CoordinatesSessionPa
         return ListTile(
           selected: i == _task,
           leading: CircleAvatar(child: Text('${i + 1}')),
-          title: Text(t.label.isEmpty ? formatAs(t.format, t.lat, t.lon) : t.label),
+          title: Text(switch (t) {
+            _ when t.photo.isNotEmpty && !(_reveal && i == _task) => s.f('task_short', [i + 1]),
+            _ when t.label.isNotEmpty => t.labelFor(lang),
+            _ => formatAs(t.format, t.lat, t.lon),
+          }),
           subtitle: Text('${s['mode_${t.mode}']}\n${s.f('task_stats', [answers.length, average])}'),
           isThreeLine: true,
           onTap: () => _select(i),
