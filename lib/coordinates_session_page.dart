@@ -59,8 +59,9 @@ class _CoordinatesSessionPageState extends SessionPageState<CoordinatesSessionPa
   @override
   Widget gridLayer() {
     final tasks = _tasks;
-    if (tasks.isEmpty || tasks[_task].format != 'utm') return super.gridLayer();
-    return UtmGridLayer(zone: utmZone(tasks[_task].lon));
+    if (tasks.isEmpty) return super.gridLayer();
+    final format = tasks[_task].format;
+    return format == 'utm' ? UtmGridLayer(zone: utmZone(tasks[_task].lon)) : GraticuleLayer(format: format);
   }
 
   void _select(int task) {

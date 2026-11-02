@@ -68,7 +68,62 @@ String _dms(double value, String positive, String negative) {
   return '$d°$mm′$ss″ ${value < 0 ? negative : positive}';
 }
 
+String _dm(double value, String positive, String negative) {
+  final thousandths = (value.abs() * 60000).round();
+  final d = thousandths ~/ 60000;
+  final m = (thousandths % 60000 / 1000).toStringAsFixed(3).padLeft(6, '0');
+  return '$d°$m′ ${value < 0 ? negative : positive}';
+}
+
+String formatDm(double lat, double lon) => '${_dm(lat, 'N', 'S')}, ${_dm(lon, 'E', 'W')}';
+
 String formatDms(double lat, double lon) => '${_dms(lat, 'N', 'S')}, ${_dms(lon, 'E', 'W')}';
+
+/// A grid line's label, only as long as it needs to be: 41°, 41°40′ or 41°40′30″.
+String dmsTick(double value) {
+  final seconds = (value.abs() * 3600).round();
+  final d = seconds ~/ 3600;
+  final m = '${(seconds % 3600) ~/ 60}'.padLeft(2, '0');
+  final s = '${seconds % 60}'.padLeft(2, '0');
+  final sign = value < 0 ? '-' : '';
+  if (seconds % 60 != 0) return '$sign$d°$m′$s″';
+  return seconds % 3600 != 0 ? '$sign$d°$m′' : '$sign$d°';
+}
+
+/// A grid line's label in degrees and decimal minutes: 41°, 41°40′ or 41°40.5′.
+String dmTick(double value) {
+  final thousandths = (value.abs() * 60000).round();
+  final d = thousandths ~/ 60000;
+  final m = thousandths % 60000;
+  final sign = value < 0 ? '-' : '';
+  if (m == 0) return '$sign$d°';
+  final text = (m / 1000).toString().replaceFirst(RegExp(r'\.0$'), '');
+  return '$sign$d°${m < 10000 ? '0' : ''}$text′';
+}
+
+/// Writes the boxes of the answer frame as one answer, or '' when a required box is empty.
+/// dd: lat, lon. dm: degrees, minutes twice. dms: degrees, minutes, seconds twice. utm: easting, northing.
+/// Empty minutes or seconds count as 0, and a decimal comma counts as a point.
+String joinBoxes(String format, List<String> boxes, {bool south = false, bool west = false, int? zone}) {
+  final b = boxes.map((v) => v.trim().replaceAll(',', '.')).toList();
+  final ns = south ? 'S' : 'N';
+  final ew = west ? 'W' : 'E';
+  String two(String v) => (v.isEmpty ? '0' : v).padLeft(2, '0');
+  switch (format) {
+    case 'dms':
+      if (b[0].isEmpty || b[3].isEmpty) return '';
+      return '${b[0]}°${two(b[1])}′${two(b[2])}″ $ns, ${b[3]}°${two(b[4])}′${two(b[5])}″ $ew';
+    case 'dm':
+      if (b[0].isEmpty || b[2].isEmpty) return '';
+      return '${b[0]}°${two(b[1])}′ $ns, ${b[2]}°${two(b[3])}′ $ew';
+    case 'utm':
+      if (b[0].isEmpty || b[1].isEmpty) return '';
+      return '${zone}N ${b[0]} ${b[1]}';
+    default:
+      if (b[0].isEmpty || b[1].isEmpty) return '';
+      return '${b[0]} $ns, ${b[1]} $ew';
+  }
+}
 
 String formatUtm(double lat, double lon) {
   final u = toUtm(lat, lon);
@@ -77,6 +132,7 @@ String formatUtm(double lat, double lon) {
 
 String formatAs(String format, double lat, double lon) => switch (format) {
       'dms' => formatDms(lat, lon),
+      'dm' => formatDm(lat, lon),
       'utm' => formatUtm(lat, lon),
       _ => formatDd(lat, lon),
     };
@@ -145,7 +201,7 @@ LatLng? parseUtm(String text, {int? zone}) {
 }
 
 LatLng? parseAs(String format, String text, {int? zone}) => switch (format) {
-      'dms' => parseDms(text),
+      'dms' || 'dm' => parseDms(text),
       'utm' => parseUtm(text, zone: zone),
       _ => parseDd(text),
     };

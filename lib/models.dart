@@ -73,7 +73,7 @@ const companies = ['alone', 'family', 'friends', 'class'];
 class CoordTask {
   final double lat, lon;
   final String mode; // to_map: coordinates are given, find the point. read: a point is given, write its coordinates.
-  final String format; // dd, dms or utm
+  final String format; // dd, dm, dms or utm
   final String label, labelEn;
   final String photo; // aerial game: a file in web/aerial
 

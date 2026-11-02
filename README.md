@@ -9,7 +9,7 @@ Classroom geography games. The teacher shows a QR code, students answer anonymou
 | Stage | Contents | Status |
 |---|---|---|
 | 1 | Sessions, QR, "Where would you travel?", live map, layers, search, backup, reset | Done |
-| 2 | Coordinates game (DD, DMS, UTM 37N/38N), leaderboard, links to Google Maps and OpenStreetMap | Done |
+| 2 | Coordinates game (DD, DM, DMS, UTM 37N/38N), leaderboard, links to Google Maps and OpenStreetMap | Done |
 | 3 | Aerial photo guessing game, from our own photos | Done |
 | 4 | Android release build for Google Play | Built, not published |
 
@@ -31,7 +31,7 @@ The teacher picks random Georgian places, taps the map or types coordinates, up 
 - **Coordinates → map:** the student sees coordinates and places a point on the map.
 - **Map → coordinates:** the student sees a marked point and types its coordinates.
 
-Coordinates are decimal degrees (DD), degrees-minutes-seconds (DMS) or rectangular UTM on the WGS84 datum. The map shows a matching grid. After each task the student sees the miss in metres, the score, both points in all three formats, and links to Google Maps and OpenStreetMap.
+Coordinates are decimal degrees (DD), degrees and decimal minutes (DM), degrees-minutes-seconds (DMS) or rectangular UTM on the WGS84 datum. The map shows a matching grid. After each task the student sees the miss in metres, the score, both points in all three formats, and links to Google Maps and OpenStreetMap.
 
 The score is 100 within 1 km, 50 at 10 km and 0 from 100 km, on a logarithmic scale. The Worker works it out from the coordinates, and only the first try at each task counts. The leaderboard shows nicknames like „ლურჯი მელა“ made from the random student id, so no name is asked for or stored.
 

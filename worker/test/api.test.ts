@@ -295,6 +295,12 @@ describe('coordinates game', () => {
   const play = (token: string, over: Record<string, unknown> = {}) =>
     send(token, { answer: coordAnswer, lat: 41.7, lon: 44.8, round: 0, ...over });
 
+  it('accepts every coordinate format', async () => {
+    const formats = ['dd', 'dm', 'dms', 'utm'].map((format) => ({ ...tasks[0], format }));
+    const res = await call('POST', 'sessions', { name: 'Formats', game: 'coordinates', tasks: formats });
+    expect(res.status).toBe(201);
+  });
+
   async function rows(sessionId: string) {
     return (await (await call('GET', `sessions/${sessionId}/responses`)).json()) as {
       responses: { round: number; score: number; distanceM: number; lat: number }[];

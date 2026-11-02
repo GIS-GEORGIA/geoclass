@@ -7,7 +7,7 @@ export class HttpError extends Error {
 const TRANSPORT = ['plane', 'train', 'car', 'bus', 'ship', 'bike', 'foot'];
 const COMPANY = ['alone', 'family', 'friends', 'class'];
 const MODES = ['to_map', 'read'];
-const FORMATS = ['dd', 'dms', 'utm'];
+const FORMATS = ['dd', 'dm', 'dms', 'utm'];
 const MAX_TASKS = 30;
 // A file directly in web/aerial, so a task can't point anywhere else.
 const PHOTO_RE = /^[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)$/;

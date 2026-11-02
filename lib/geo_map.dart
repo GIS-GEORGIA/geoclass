@@ -129,14 +129,38 @@ class LayerPanel extends StatelessWidget {
 const _niceDegrees = [20.0, 10.0, 5.0, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001];
 const _niceMetres = [100000.0, 50000.0, 20000.0, 10000.0, 5000.0, 2000.0, 1000.0, 500.0, 200.0, 100.0];
 
+// Whole degrees, then minutes, then seconds, so DMS labels stay round numbers.
+const _niceDms = [
+  20.0, 10.0, 5.0, 2.0, 1.0,
+  30 / 60, 20 / 60, 10 / 60, 5 / 60, 2 / 60, 1 / 60,
+  30 / 3600, 20 / 3600, 10 / 3600, 5 / 3600, 2 / 3600, 1 / 3600,
+];
+
+// Whole degrees, then minutes, then decimal minutes.
+const _niceDm = [
+  20.0, 10.0, 5.0, 2.0, 1.0,
+  30 / 60, 20 / 60, 10 / 60, 5 / 60, 2 / 60, 1 / 60,
+  0.5 / 60, 0.2 / 60, 0.1 / 60, 0.05 / 60, 0.02 / 60, 0.01 / 60,
+];
+
 double _niceStep(double span, List<double> steps) => steps.firstWhere((s) => span / s >= 4, orElse: () => steps.last);
+
+/// As [_niceStep], but coarser when the labels along the line wouldn't fit side by side.
+double _fittingStep(double span, List<double> steps, double pixels, double labelWidth) {
+  final fine = _niceStep(span, steps);
+  return steps.lastWhere((s) => s >= fine && span / s * labelWidth <= pixels, orElse: () => steps.first);
+}
+
+// Label positions keep clear of the corners: the scale bar and attribution sit along the bottom.
+const _labelHeight = 18.0;
+const _bottomClear = 60.0;
 
 Widget _gridLabel(BuildContext context, String text) => Align(
       alignment: Alignment.centerLeft,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 3),
         color: Colors.white.withValues(alpha: 0.8),
-        child: Text(text, style: const TextStyle(fontSize: 10, color: Colors.black87), maxLines: 1, overflow: TextOverflow.clip),
+        child: Text(text, style: const TextStyle(fontSize: 12, color: Colors.black87), maxLines: 1, overflow: TextOverflow.clip),
       ),
     );
 
@@ -144,16 +168,22 @@ const _gridColor = Color(0x99003D33);
 
 /// Latitude and longitude lines, finer as the map zooms in, so coordinates can be read off the map.
 class GraticuleLayer extends StatelessWidget {
-  const GraticuleLayer({super.key});
+  /// How the labels are written and where the lines fall: dd, dm or dms.
+  final String format;
+  const GraticuleLayer({super.key, this.format = 'dd'});
 
   @override
   Widget build(BuildContext context) {
-    final b = MapCamera.of(context).visibleBounds;
+    final camera = MapCamera.of(context);
+    final size = camera.nonRotatedSize;
+    final b = camera.visibleBounds;
     final south = b.south.clamp(-85.0, 85.0);
     final north = b.north.clamp(-85.0, 85.0);
     final west = b.west.clamp(-180.0, 180.0);
     final east = b.east.clamp(-180.0, 180.0);
-    final step = _niceStep(north - south, _niceDegrees);
+    final labelWidth = switch (format) { 'dms' => 78.0, 'dm' => 72.0, _ => 56.0 };
+    final steps = switch (format) { 'dms' => _niceDms, 'dm' => _niceDm, _ => _niceDegrees };
+    final step = _niceStep(north - south, steps);
     final decimals = step >= 1 ? 0 : (step >= 0.1 ? 1 : (step >= 0.01 ? 2 : 3));
 
     final lines = <Polyline>[];
@@ -161,26 +191,28 @@ class GraticuleLayer extends StatelessWidget {
     for (var i = (south / step).ceil(); i * step <= north; i++) {
       final lat = i * step;
       lines.add(Polyline(points: [LatLng(lat, west), LatLng(lat, east)], color: _gridColor, strokeWidth: 1));
+      if (lat < south + (north - south) * _bottomClear / size.height) continue;
       labels.add(Marker(
         point: LatLng(lat, west),
-        width: 60,
-        height: 14,
+        width: labelWidth,
+        height: _labelHeight,
         alignment: Alignment.centerRight,
-        child: _gridLabel(context, '${lat.toStringAsFixed(decimals)}°'),
+        child: _gridLabel(context, switch (format) { 'dms' => dmsTick(lat), 'dm' => dmTick(lat), _ => '${lat.toStringAsFixed(decimals)}°' }),
       ));
     }
-    final lonStep = _niceStep(east - west, _niceDegrees);
+    final lonStep = _fittingStep(east - west, steps, size.width, labelWidth);
     final lonDecimals = lonStep >= 1 ? 0 : (lonStep >= 0.1 ? 1 : (lonStep >= 0.01 ? 2 : 3));
-    final labelLat = south + (north - south) * 0.08;
+    final labelLat = north - (north - south) * (_labelHeight / 2 + 2) / size.height;
     for (var i = (west / lonStep).ceil(); i * lonStep <= east; i++) {
       final lon = i * lonStep;
       lines.add(Polyline(points: [LatLng(south, lon), LatLng(north, lon)], color: _gridColor, strokeWidth: 1));
+      if (lon < west + (east - west) * labelWidth / size.width) continue; // the latitude labels are here
       labels.add(Marker(
         point: LatLng(labelLat, lon),
-        width: 60,
-        height: 14,
+        width: labelWidth,
+        height: _labelHeight,
         alignment: Alignment.centerRight,
-        child: _gridLabel(context, '${lon.toStringAsFixed(lonDecimals)}°'),
+        child: _gridLabel(context, switch (format) { 'dms' => dmsTick(lon), 'dm' => dmTick(lon), _ => '${lon.toStringAsFixed(lonDecimals)}°' }),
       ));
     }
     return Stack(children: [PolylineLayer(polylines: lines), MarkerLayer(markers: labels)]);
@@ -194,7 +226,9 @@ class UtmGridLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final b = MapCamera.of(context).visibleBounds;
+    final camera = MapCamera.of(context);
+    final size = camera.nonRotatedSize;
+    final b = camera.visibleBounds;
     if (b.north - b.south > 12 || b.east - b.west > 16) return const SizedBox.shrink();
 
     final corners = [
@@ -207,17 +241,21 @@ class UtmGridLayer extends StatelessWidget {
     final maxE = corners.map((u) => u.easting).reduce((a, c) => a > c ? a : c);
     final minN = corners.map((u) => u.northing).reduce((a, c) => a < c ? a : c);
     final maxN = corners.map((u) => u.northing).reduce((a, c) => a > c ? a : c);
-    final step = _niceStep(maxN - minN, _niceMetres);
+    const labelWidth = 100.0;
+    // One step for both directions keeps the squares square, and the easting labels (about 78 px) must fit.
+    final step = _fittingStep(maxN - minN, _niceMetres, size.width * (maxN - minN) / (maxE - minE), 78);
 
     final lines = <Polyline>[];
     final labels = <Marker>[];
     for (var i = (minE / step).ceil(); i * step <= maxE; i++) {
       final e = i * step;
       lines.add(Polyline(points: [fromUtm(zone, e, minN), fromUtm(zone, e, maxN)], color: _gridColor, strokeWidth: 1));
+      final lon = fromUtm(zone, e, (minN + maxN) / 2).longitude;
+      if (lon < b.west + (b.east - b.west) * labelWidth / size.width) continue; // the northing labels are here
       labels.add(Marker(
-        point: fromUtm(zone, e, minN + (maxN - minN) * 0.08),
-        width: 80,
-        height: 14,
+        point: LatLng(b.north - (b.north - b.south) * (_labelHeight / 2 + 2) / size.height, lon),
+        width: labelWidth,
+        height: _labelHeight,
         alignment: Alignment.centerRight,
         child: _gridLabel(context, 'E ${e.round()}'),
       ));
@@ -225,10 +263,12 @@ class UtmGridLayer extends StatelessWidget {
     for (var i = (minN / step).ceil(); i * step <= maxN; i++) {
       final n = i * step;
       lines.add(Polyline(points: [fromUtm(zone, minE, n), fromUtm(zone, maxE, n)], color: _gridColor, strokeWidth: 1));
+      final lat = fromUtm(zone, minE, n).latitude;
+      if (lat < b.south + (b.north - b.south) * _bottomClear / size.height) continue;
       labels.add(Marker(
-        point: LatLng(fromUtm(zone, minE, n).latitude, b.west),
-        width: 90,
-        height: 14,
+        point: LatLng(lat, b.west),
+        width: labelWidth,
+        height: _labelHeight,
         alignment: Alignment.centerRight,
         child: _gridLabel(context, 'N ${n.round()}'),
       ));

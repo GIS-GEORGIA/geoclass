@@ -11,7 +11,7 @@ import 'models.dart';
 import 'places.dart';
 
 const _modes = ['to_map', 'read'];
-const _formats = ['dd', 'dms', 'utm'];
+const _formats = ['dd', 'dm', 'dms', 'utm'];
 
 /// Picks random Georgian places as tasks. Places with a Georgian name are the well-known ones.
 List<CoordTask> randomTasks(PlaceIndex index, int count, String mode, String format, {Random? random}) {
@@ -147,6 +147,7 @@ class _CoordinatesSetupPageState extends State<CoordinatesSetupPage> {
               _choice(s['setup_format'], _format, [
                 ('mix', s['format_mix']),
                 ('dd', s['format_dd']),
+                ('dm', s['format_dm']),
                 ('dms', s['format_dms']),
                 ('utm', s['format_utm']),
               ], (v) {

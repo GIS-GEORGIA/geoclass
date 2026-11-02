@@ -252,9 +252,37 @@ void main() {
 
     test('negative coordinates are written with S and W', () {
       expect(formatDms(-23.5, -46.25), '23°30′00″ S, 46°15′00″ W');
-      final p = parseDms('23°30′00″ S, 46°15′00″ W')!;
-      expect(p.latitude, closeTo(-23.5, 1e-9));
-      expect(p.longitude, closeTo(-46.25, 1e-9));
+      expect(dmsTick(41), '41°');
+      expect(dmsTick(41 + 5 / 60), '41°05′');
+      expect(dmsTick(41 + 40 / 60 + 30 / 3600), '41°40′30″');
+      expect(dmsTick(-23.5), '-23°30′');
+      expect(dmTick(41), '41°');
+      expect(dmTick(41 + 40 / 60), '41°40′');
+      expect(dmTick(41 + 5.5 / 60), '41°05.5′');
+      expect(dmTick(41 + 40.25 / 60), '41°40.25′');
+      expect(formatDm(41.5, 44.75), '41°30.000′ N, 44°45.000′ E');
+      final dm = parseAs('dm', formatDm(-23.5125, -46.25))!;
+      expect(dm.latitude, closeTo(-23.5125, 1e-6));
+      expect(dm.longitude, closeTo(-46.25, 1e-6));
+    });
+
+    test('the answer frame makes an answer the parser reads', () {
+      final joined = joinBoxes('dms', ['41', '7', '', '44', '48', '5']);
+      expect(joined, '41°07′00″ N, 44°48′05″ E');
+      expect(parseAs('dms', joined)!.latitude, closeTo(41 + 7 / 60, 1e-9));
+      expect(parseAs('dms', joinBoxes('dms', ['23', '30', '', '46', '', ''], south: true, west: true))!.longitude, closeTo(-46, 1e-9));
+      expect(parseAs('dms', joinBoxes('dms', ['41', '75', '', '44', '', ''])), isNull);
+      expect(joinBoxes('dms', ['', '30', '', '44', '', '']), '');
+      final dm = parseAs('dm', joinBoxes('dm', ['41', '7,5', '44', '48']))!;
+      expect(dm.latitude, closeTo(41 + 7.5 / 60, 1e-9));
+      expect(dm.longitude, closeTo(44.8, 1e-9));
+      final dd = parseAs('dd', joinBoxes('dd', ['41,69', '44.8'], west: true))!;
+      expect(dd.latitude, closeTo(41.69, 1e-9));
+      expect(dd.longitude, closeTo(-44.8, 1e-9));
+      final utm = toUtm(41.69, 44.8);
+      final back = parseAs('utm', joinBoxes('utm', ['${utm.easting.round()}', '${utm.northing.round()}'], zone: utm.zone))!;
+      expect(back.latitude, closeTo(41.69, 1e-4));
+      expect(joinBoxes('utm', ['483482', ''], zone: 38), '');
     });
 
     test('DD accepts common ways of typing', () {

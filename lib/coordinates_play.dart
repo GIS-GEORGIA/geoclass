@@ -49,11 +49,13 @@ class _Result {
 
 class _CoordinatesPlayState extends State<CoordinatesPlay> {
   late final _queue = SubmissionQueue(widget.api.submit);
-  final _input = TextEditingController();
+  // The boxes of the answer frame. joinBoxes says what each one holds in each format.
+  final _boxes = List.generate(6, (_) => TextEditingController());
   final _map = MapController();
   Timer? _retry;
   bool _loaded = false;
-  int _round = 0;
+  int _round = 0; // the task on screen; tasks.length means none is left to show
+  final _answered = <int>{};
   int _total = 0;
   String _participant = '';
   _Result? _result;
@@ -75,7 +77,9 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
   @override
   void dispose() {
     _retry?.cancel();
-    _input.dispose();
+    for (final c in _boxes) {
+      c.dispose();
+    }
     _map.dispose();
     super.dispose();
   }
@@ -90,6 +94,8 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
       // After the teacher resets the session everyone starts again.
       if (data['resetAt'] == widget.resetAt) {
         _round = data['round'] as int;
+        // Progress saved before tasks could be skipped has only the position.
+        _answered.addAll((data['answered'] as List?)?.cast<int>() ?? List.generate(_round, (i) => i));
         _total = data['total'] as int;
       }
     }
@@ -106,7 +112,7 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
   }
 
   Future<void> _saveProgress() async => (await SharedPreferences.getInstance())
-      .setString(_progressKey, jsonEncode({'round': _round, 'total': _total, 'resetAt': widget.resetAt}));
+      .setString(_progressKey, jsonEncode({'round': _round, 'answered': _answered.toList(), 'total': _total, 'resetAt': widget.resetAt}));
 
   /// Returns true unless the session stopped accepting answers.
   Future<bool> _send() async {
@@ -132,7 +138,13 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
     final LatLng? point;
     var raw = '';
     if (task.mode == 'read') {
-      raw = _input.text.trim();
+      raw = joinBoxes(
+        task.format,
+        _boxes.map((c) => c.text).toList(),
+        south: task.lat < 0,
+        west: task.lon < 0,
+        zone: utmZone(task.lon),
+      );
       point = parseAs(task.format, raw, zone: utmZone(task.lon));
       if (point == null) {
         setState(() => _error = 'play_bad_input');
@@ -170,17 +182,58 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
     setState(() {
       _result = _Result(task, point!.latitude, point.longitude, distance, score);
       _total += score;
-      _round++;
+      _answered.add(_round);
+      _round = _nextOpen();
     });
     _preloadPhoto();
     await _saveProgress();
   }
 
+  /// The next unanswered task after this one, going round to the start; tasks.length if there is none.
+  int _nextOpen() {
+    final count = widget.tasks.length;
+    for (var i = 1; i < count; i++) {
+      final task = (_round + i) % count;
+      if (!_answered.contains(task)) return task;
+    }
+    return count;
+  }
+
+  void _goTo(int task) {
+    _next();
+    setState(() => _round = task);
+    _preloadPhoto();
+    _saveProgress();
+  }
+
+  /// Numbers to jump between tasks. An answered one stays closed: the first try counts and its result was shown.
+  Widget _taskButtons() => Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          for (var i = 0; i < widget.tasks.length; i++)
+            ChoiceChip(
+              label: Text('${i + 1}'),
+              selected: i == _round,
+              showCheckmark: false,
+              avatar: _answered.contains(i) ? const Icon(Icons.check, size: 16) : null,
+              visualDensity: VisualDensity.compact,
+              onSelected: _answered.contains(i) || _busy
+                  ? null
+                  : (_) {
+                      if (i != _round) _goTo(i);
+                    },
+            ),
+        ],
+      );
+
   void _next() {
     setState(() {
       _result = null;
       _pin = null;
-      _input.clear();
+      for (final c in _boxes) {
+        c.clear();
+      }
       _error = null;
     });
   }
@@ -200,7 +253,60 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
         ),
       );
 
-  Widget _grid(String format, int zone) => format == 'utm' ? UtmGridLayer(zone: zone) : const GraticuleLayer();
+  Widget _grid(String format, int zone) =>
+      format == 'utm' ? UtmGridLayer(zone: zone) : GraticuleLayer(format: format);
+
+  /// One line of the answer frame. Each box is (mark after it, allows decimals, longest length).
+  Widget _boxRow(String title, int first, List<(String, bool, int)> boxes) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: Theme.of(context).textTheme.bodyMedium),
+      const SizedBox(height: 4),
+      Row(children: [
+        for (var i = 0; i < boxes.length; i++) ...[
+          if (i > 0) const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _boxes[first + i],
+              keyboardType: TextInputType.numberWithOptions(decimal: boxes[i].$2),
+              textInputAction: TextInputAction.next,
+              maxLength: boxes[i].$3,
+              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(boxes[i].$2 ? r'[0-9.,]' : r'[0-9]'))],
+              decoration: InputDecoration(
+                // suffixText hides until the box is used, and these marks are what make the frame clear.
+                suffixIcon: Align(widthFactor: 1, child: Text(boxes[i].$1)),
+                suffixIconConstraints: const BoxConstraints(minWidth: 28),
+                counterText: '',
+                isDense: true,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ),
+        ],
+      ]),
+    ]);
+  }
+
+  /// A ready-made frame for the answer, so nothing but numbers has to be typed.
+  List<Widget> _answerFrame(CoordTask task, int zone) {
+    final lat = s.f('play_lat', [task.lat < 0 ? 'S' : 'N']);
+    final lon = s.f('play_lon', [task.lon < 0 ? 'W' : 'E']);
+    final (first, second) = switch (task.format) {
+      'dms' => (
+          _boxRow(lat, 0, [('°', false, 3), ('′', false, 2), ('″', false, 2)]),
+          _boxRow(lon, 3, [('°', false, 3), ('′', false, 2), ('″', false, 2)]),
+        ),
+      'dm' => (
+          _boxRow(lat, 0, [('°', false, 3), ('′', true, 7)]),
+          _boxRow(lon, 2, [('°', false, 3), ('′', true, 7)]),
+        ),
+      'utm' => (
+          _boxRow(s.f('play_easting', ['${zone}N']), 0, [('m', false, 6)]),
+          _boxRow(s['play_northing'], 1, [('m', false, 7)]),
+        ),
+      _ => (_boxRow(lat, 0, [('°', true, 9)]), _boxRow(lon, 1, [('°', true, 9)])),
+    };
+    return [first, const SizedBox(height: 8), second, const SizedBox(height: 12)];
+  }
 
   Widget _taskView(CoordTask task) {
     final text = Theme.of(context).textTheme;
@@ -210,9 +316,13 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
     final center = readMode ? LatLng(task.lat, task.lon) : const LatLng(42.2, 43.5);
     return _page([
       Text(s.f('play_task', [_round + 1, widget.tasks.length]), style: text.titleMedium),
-      LinearProgressIndicator(value: _round / widget.tasks.length),
+      LinearProgressIndicator(value: _answered.length / widget.tasks.length),
       const SizedBox(height: 4),
       Text(s.f('play_nick', [nickname(_participant, widget.lang)]), style: text.bodySmall),
+      if (widget.tasks.length > 1) ...[
+        const SizedBox(height: 8),
+        _taskButtons(),
+      ],
       const SizedBox(height: 12),
       Text(s[photoMode ? 'play_photo' : (readMode ? 'play_read' : 'play_to_map')], style: text.titleLarge),
       const SizedBox(height: 8),
@@ -224,7 +334,12 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
           style: text.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
       const SizedBox(height: 4),
-      Text(s[photoMode ? 'play_photo_hint' : (readMode ? 'play_read_hint' : 'play_to_map_hint')], style: text.bodyMedium),
+      Text(
+        s[photoMode
+            ? 'play_photo_hint'
+            : (readMode ? 'play_read_hint_${task.format}' : 'play_to_map_hint')],
+        style: text.bodyMedium,
+      ),
       const SizedBox(height: 12),
       ClipRRect(
         borderRadius: BorderRadius.circular(12),
@@ -270,17 +385,7 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
       if (readMode) ...[
         Text(s['format_${task.format}'], style: text.titleSmall),
         const SizedBox(height: 8),
-        TextField(
-          controller: _input,
-          decoration: InputDecoration(
-            labelText: s['play_input'],
-            helperText: s.f('play_example', [_example(task.format, zone)]),
-            border: const OutlineInputBorder(),
-          ),
-          maxLength: 60,
-          inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'[\n\r\t]'))],
-          onSubmitted: (_) => _answer(),
-        ),
+        ..._answerFrame(task, zone),
       ],
       if (_error != null)
         Padding(
@@ -292,14 +397,14 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
         icon: const Icon(Icons.check),
         label: Padding(padding: const EdgeInsets.all(8), child: Text(s['play_answer'])),
       ),
+      const SizedBox(height: 8),
+      OutlinedButton.icon(
+        onPressed: _busy ? null : () => _goTo(_nextOpen()),
+        icon: const Icon(Icons.skip_next),
+        label: Padding(padding: const EdgeInsets.all(8), child: Text(s['play_skip'])),
+      ),
     ]);
   }
-
-  String _example(String format, int zone) => switch (format) {
-        'dms' => '41°41′38″ N, 44°48′05″ E',
-        'utm' => '${zone}N 483482 4615799',
-        _ => '41.69380, 44.80150',
-      };
 
   Widget _resultView(_Result r) {
     final text = Theme.of(context).textTheme;
@@ -392,7 +497,7 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
           children: [
             Row(children: [Icon(icon, size: 20), const SizedBox(width: 6), Text(title, style: text.titleSmall)]),
             const SizedBox(height: 6),
-            SelectableText('DD:  ${formatDd(lat, lon)}\nDMS:  ${formatDms(lat, lon)}\nUTM:  ${formatUtm(lat, lon)}'),
+            SelectableText('DD:  ${formatDd(lat, lon)}\nDM:  ${formatDm(lat, lon)}\nDMS:  ${formatDms(lat, lon)}\nUTM:  ${formatUtm(lat, lon)}'),
             const SizedBox(height: 4),
             Wrap(
               spacing: 8,
@@ -417,6 +522,7 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
 
   Widget _finished() {
     final text = Theme.of(context).textTheme;
+    final skipped = widget.tasks.length - _answered.length;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -430,6 +536,15 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
             Text(s.f('done_total', [_total, widget.tasks.length * 100]), style: text.titleLarge),
             const SizedBox(height: 4),
             Text(nickname(_participant, widget.lang)),
+            if (skipped > 0) ...[
+              const SizedBox(height: 12),
+              Text(s.f('done_skipped', [skipped]), textAlign: TextAlign.center),
+              const SizedBox(height: 8),
+              FilledButton(
+                onPressed: () => _goTo(List.generate(widget.tasks.length, (i) => i).firstWhere((i) => !_answered.contains(i))),
+                child: Text(s['done_back']),
+              ),
+            ],
             if (_pending > 0) ...[
               const SizedBox(height: 12),
               Text(s['done_pending'], textAlign: TextAlign.center),
