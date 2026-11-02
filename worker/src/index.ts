@@ -439,6 +439,11 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
   if (key === 'GET health') return json({ ok: true });
   if (key === 'POST join') return join(env, request);
   if (key === 'POST submit') return submit(env, request);
+  // Deliberately public: the key minus its ending, which the owner keeps in their head. Unset, it's a 404.
+  if (key === 'GET key-hint') {
+    if (!env.TEACHER_KEY_HINT) throw new HttpError(404, 'not_found');
+    return json({ hint: env.TEACHER_KEY_HINT });
+  }
 
   await requireTeacher(env, request);
 

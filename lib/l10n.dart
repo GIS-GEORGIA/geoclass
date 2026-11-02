@@ -32,6 +32,8 @@ class S {
       'key_label': 'მასწავლებლის გასაღები',
       'key_enter': 'შესვლა',
       'key_wrong': 'გასაღები არასწორია',
+      'site_qr_title': 'საიტის QR კოდი',
+      'site_qr_hint': 'დაასკანერე საიტის გასახსნელად',
 
       // Home
       'sessions': 'სესიები',
@@ -253,6 +255,8 @@ class S {
       'key_label': 'Teacher key',
       'key_enter': 'Sign in',
       'key_wrong': 'Wrong key',
+      'site_qr_title': 'QR code for this site',
+      'site_qr_hint': 'Scan to open this site',
 
       'sessions': 'Sessions',
       'new_session': 'New session',

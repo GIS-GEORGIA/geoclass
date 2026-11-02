@@ -12,6 +12,7 @@ export default defineConfig(async () => ({
           TEST_MIGRATIONS: await readD1Migrations(path.join(import.meta.dirname, 'migrations')),
           // sha256 of "test-teacher-key"
           TEACHER_KEY_HASH: '08767e0e1db0c180a43436652d3cf29ebac8d2412b3f309f01d22dfe3fd04377',
+          TEACHER_KEY_HINT: 'test-teacher-ke',
         },
       },
     }),

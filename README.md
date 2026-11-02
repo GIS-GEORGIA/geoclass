@@ -83,7 +83,7 @@ npm install
 npm run key
 ```
 
-`npm run key` prints a teacher key and its hash. Put the hash in `worker/.dev.vars`:
+`npm run key` prints a teacher key and its hash. The optional `TEACHER_KEY_HINT` secret is deliberately public: the sign-in page's small copy button gives it out, so it should be the key without its last characters, and the shorter it is, the harder the rest is to guess. Put the hash in `worker/.dev.vars`:
 
 ```
 TEACHER_KEY_HASH=<hash>

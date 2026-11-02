@@ -70,6 +70,7 @@ class Api {
 
   // Teacher
   Future<void> checkKey() => _send('GET', 'me');
+  Future<String> keyHint() async => (await _send('GET', 'key-hint'))['hint'] as String;
 
   Future<List<SessionInfo>> sessions() async {
     final data = await _send('GET', 'sessions');

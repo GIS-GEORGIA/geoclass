@@ -55,6 +55,15 @@ describe('teacher access', () => {
     expect((await call('GET', 'backup', undefined, {})).status).toBe(401);
   });
 
+  it('gives out only part of the key, and that part alone does not sign in', async () => {
+    const res = await call('GET', 'key-hint', undefined, {});
+    expect(res.status).toBe(200);
+    const { hint } = (await res.json()) as { hint: string };
+    expect(KEY.startsWith(hint)).toBe(true);
+    expect(hint.length).toBeLessThan(KEY.length);
+    expect((await call('GET', 'me', undefined, { Authorization: `Bearer ${hint}` })).status).toBe(401);
+  });
+
   it('accepts the right key', async () => {
     expect((await call('GET', 'me')).status).toBe(200);
   });

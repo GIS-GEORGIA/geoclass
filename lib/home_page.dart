@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import 'aerial_setup_page.dart';
 import 'api.dart';
@@ -22,6 +26,41 @@ void _openSettings(BuildContext context, Settings settings) => Navigator.of(cont
       builder: (_) => SettingsPage(settings: settings, teacherTools: settings.isTeacher),
     ));
 
+/// A QR code of the site's own address, so nobody has to type it.
+class _SiteQr extends StatelessWidget {
+  final double size;
+  const _SiteQr({required this.size});
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+        // White in both themes: phones read dark-on-light best.
+        color: Colors.white,
+        child: QrImageView(data: '$publicUrl/', size: size, backgroundColor: Colors.white, padding: const EdgeInsets.all(12)),
+      );
+}
+
+void _showSiteQr(BuildContext context, S s) {
+  final side = (MediaQuery.of(context).size.shortestSide - 96).clamp(180.0, 480.0);
+  showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(s['site_qr_title']),
+      content: SizedBox(
+        width: side,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _SiteQr(size: side),
+            const SizedBox(height: 8),
+            SelectableText('$publicUrl/'),
+          ],
+        ),
+      ),
+      actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(s['close']))],
+    ),
+  );
+}
+
 class _KeyPage extends StatefulWidget {
   final Settings settings;
   const _KeyPage({required this.settings});
@@ -33,13 +72,33 @@ class _KeyPageState extends State<_KeyPage> {
   final _ctl = TextEditingController();
   String? _error;
   bool _busy = false;
+  String? _hint; // the key without its ending; null hides the copy button
+  bool _copied = false;
+  Timer? _copiedTimer;
 
   S get s => widget.settings.s;
 
   @override
+  void initState() {
+    super.initState();
+    Api().keyHint().then((hint) {
+      if (mounted) setState(() => _hint = hint);
+    }, onError: (_) {});
+  }
+
+  @override
   void dispose() {
+    _copiedTimer?.cancel();
     _ctl.dispose();
     super.dispose();
+  }
+
+  Future<void> _copyHint() async {
+    await Clipboard.setData(ClipboardData(text: _hint!));
+    if (!mounted) return;
+    setState(() => _copied = true);
+    _copiedTimer?.cancel();
+    _copiedTimer = Timer(const Duration(seconds: 2), () => setState(() => _copied = false));
   }
 
   Future<void> _enter() async {
@@ -97,6 +156,26 @@ class _KeyPageState extends State<_KeyPage> {
                 ),
                 const SizedBox(height: 16),
                 FilledButton(onPressed: _busy ? null : _enter, child: Text(s['key_enter'])),
+                // Small and unlabelled on purpose: it's for the owner, and it gives only part of the key.
+                if (_hint != null)
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: IconButton(
+                      icon: Icon(_copied ? Icons.check : Icons.content_copy, size: 12),
+                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.25),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: _copyHint,
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                Center(
+                  child: InkWell(
+                    onTap: () => _showSiteQr(context, s),
+                    child: const _SiteQr(size: 140),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Center(child: Text(s['site_qr_hint'], style: Theme.of(context).textTheme.bodySmall, textAlign: TextAlign.center)),
               ],
             ),
           ),
@@ -242,6 +321,11 @@ class _SessionListState extends State<_SessionList> {
       appBar: AppBar(
         title: Text(s['sessions']),
         actions: [
+          IconButton(
+            tooltip: s['site_qr_title'],
+            icon: const Icon(Icons.qr_code),
+            onPressed: () => _showSiteQr(context, s),
+          ),
           IconButton(
             tooltip: s['show_archived'],
             isSelected: _showArchived,

@@ -5,6 +5,7 @@ interface __BaseEnv_Env {
 	DB: D1Database;
 	SUBMIT_LIMIT: RateLimit;
 	TEACHER_KEY_HASH: string;
+	TEACHER_KEY_HINT?: string;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {
