@@ -20,7 +20,7 @@ ThemeData _theme(Brightness brightness) => ThemeData(
 
 /// Students arrive at `#/join/<token>`, everyone else gets the teacher side.
 String? joinToken(String? routeName) =>
-    RegExp(r'^/join/([A-Za-z0-9_-]+)$').firstMatch(routeName ?? '')?.group(1);
+    RegExp(r'^/(?:#/)?join/([A-Za-z0-9_-]+)$').firstMatch(routeName ?? '')?.group(1);
 
 class App extends StatelessWidget {
   final Settings settings;

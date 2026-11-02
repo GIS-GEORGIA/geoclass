@@ -430,6 +430,8 @@ async function restore(env: Env, request: Request): Promise<Response> {
 // --- Routing ---
 
 async function route(request: Request, env: Env, url: URL): Promise<Response> {
+  // A static file that doesn't exist ends up here too.
+  if (!url.pathname.startsWith('/api/')) throw new HttpError(404, 'not_found');
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // drop "api"
   const { method } = request;
   const key = `${method} ${parts[0] ?? ''}`;

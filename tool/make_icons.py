@@ -1,19 +1,21 @@
-"""Draws the app icon into web/icons and web/favicon.png. Needs Pillow."""
-from PIL import Image, ImageDraw
+"""Draws the app icon for web and Android, and the Play feature graphic. Needs Pillow."""
+import os
+
+from PIL import Image, ImageDraw, ImageFont
 
 TEAL = (0, 121, 107, 255)
 WHITE = (255, 255, 255, 255)
 SCALE = 4
 
 
-def draw(size, maskable):
+def draw(size, maskable, safe=0.72):
     s = size * SCALE
     img = Image.new("RGBA", (s, s), TEAL if maskable else (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     if not maskable:
         d.rounded_rectangle((0, 0, s - 1, s - 1), radius=s // 5, fill=TEAL)
     # Maskable icons keep their content inside the central safe zone.
-    k = 0.72 if maskable else 1.0
+    k = safe if maskable else 1.0
     cx, cy = s / 2, s / 2
 
     def p(x, y):
@@ -42,3 +44,24 @@ for size in (192, 512):
     draw(size, False).save(f"web/icons/Icon-{size}.png")
     draw(size, True).save(f"web/icons/Icon-maskable-{size}.png")
 draw(32, False).save("web/favicon.png")
+
+RES = "android/app/src/main/res"
+for folder, size in (("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144), ("xxxhdpi", 192)):
+    draw(size, False).save(f"{RES}/mipmap-{folder}/ic_launcher.png")
+# Android masks adaptive icons down to the central 61%.
+draw(432, True, safe=0.58).save(f"{RES}/mipmap-xxxhdpi/ic_launcher_foreground.png")
+
+
+def feature_graphic():
+    img = Image.new("RGB", (1024, 500), TEAL[:3])
+    img.paste(draw(300, True), (70, 100))
+    d = ImageDraw.Draw(img)
+    font = "assets/fonts/NotoSansGeorgian-"
+    d.text((410, 135), "GeoClass", font=ImageFont.truetype(font + "Bold.ttf", 96), fill=WHITE)
+    d.text((412, 275), "გეოგრაფიული თამაშები კლასისთვის", font=ImageFont.truetype(font + "Regular.ttf", 28), fill=WHITE)
+    d.text((412, 325), "Geography games for the classroom", font=ImageFont.truetype(font + "Regular.ttf", 28), fill=WHITE)
+    os.makedirs("docs/play", exist_ok=True)
+    img.save("docs/play/feature-graphic.png")
+
+
+feature_graphic()

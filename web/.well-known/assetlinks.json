@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "ge.qgis.geoclass",
+      "sha256_cert_fingerprints": ["92:BF:D9:62:68:E1:30:FE:77:5F:A3:9D:48:A6:0B:C5:DC:9A:4B:BA:72:B7:E5:2C:46:76:06:ED:AE:88:02:D8"]
+    }
+  }
+]

@@ -454,3 +454,9 @@ describe('aerial game', () => {
     expect(restored.responses[0].score).toBe(50);
   });
 });
+
+describe('paths outside the API', () => {
+  it('answer 404 without asking for a key', async () => {
+    expect((await call('GET', '../aerial/missing.jpg', undefined, {})).status).toBe(404);
+  });
+});

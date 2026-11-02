@@ -140,6 +140,12 @@ class _SettingsPageState extends State<SettingsPage> {
                     subtitle: const Text(githubUrl),
                     onTap: () => launchUrl(Uri.parse(githubUrl)),
                   ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.privacy_tip_outlined),
+                    title: Text(s['privacy']),
+                    onTap: () => launchUrl(Uri.parse('$publicUrl/privacy/')),
+                  ),
                   const SizedBox(height: 8),
                   Text(s['credits'], style: Theme.of(context).textTheme.bodySmall),
                 ],

@@ -4,14 +4,14 @@ Classroom geography games. The teacher shows a QR code, students answer anonymou
 
 საკლასო გეოგრაფიული თამაშები. მასწავლებელი აჩვენებს QR კოდს, მოსწავლეები ტელეფონიდან ანონიმურად პასუხობენ, პასუხები კი პირდაპირ რუკაზე ჩნდება.
 
-**Status:** Stage 3 of 4. The travel, coordinates and aerial photo games work from QR code to live map. Live at https://geoclass.qgis.ge.
+**Status:** The travel, coordinates and aerial photo games work from QR code to live map. Live at https://geoclass.qgis.ge. The Android build is ready to publish, see [docs/play-store.md](docs/play-store.md).
 
 | Stage | Contents | Status |
 |---|---|---|
 | 1 | Sessions, QR, "Where would you travel?", live map, layers, search, backup, reset | Done |
 | 2 | Coordinates game (DD, DMS, UTM 37N/38N), leaderboard, links to Google Maps and OpenStreetMap | Done |
 | 3 | Aerial photo guessing game, from our own photos | Done |
-| 4 | Android release build for Google Play | Planned |
+| 4 | Android release build for Google Play | Built, not published |
 
 ## Features
 

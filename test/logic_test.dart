@@ -63,6 +63,9 @@ void main() {
     test('finds the token', () {
       expect(joinToken('/join/abc_DEF-123'), 'abc_DEF-123');
     });
+    test('finds the token in a link opened by Android', () {
+      expect(joinToken('/#/join/abc_DEF-123'), 'abc_DEF-123');
+    });
     test('ignores other routes', () {
       expect(joinToken('/'), isNull);
       expect(joinToken(null), isNull);
