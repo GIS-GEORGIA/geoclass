@@ -77,11 +77,12 @@ class Api {
     return [for (final s in data['sessions'] as List) SessionInfo.fromJson(s as Map<String, dynamic>)];
   }
 
-  Future<(SessionInfo, String)> createSession(String name, String game, {List<CoordTask>? tasks}) async {
+  Future<(SessionInfo, String)> createSession(String name, String game, {List<CoordTask>? tasks, Map<String, dynamic>? cards}) async {
     final data = await _send('POST', 'sessions', {
       'name': name,
       'game': game,
       if (tasks != null) 'tasks': [for (final t in tasks) t.toJson()],
+      'cards': ?cards,
     });
     return (SessionInfo.fromJson(data['session'] as Map<String, dynamic>), data['token'] as String);
   }

@@ -13,8 +13,11 @@ const KINDS = ['point', 'line', 'polygon'];
 const CATEGORIES = ['food', 'icecream', 'cinema', 'stadium', 'square', 'park', 'attraction', 'school', 'shop', 'museum', 'other'];
 const MIN_VERTICES: Record<string, number> = { point: 1, line: 2, polygon: 3 };
 const MAX_VERTICES = 100;
-// A file directly in web/aerial, so a task can't point anywhere else.
+// A file directly in web/aerial, so a task can't point anywhere else. The cards game uses web/cards the same way.
 const PHOTO_RE = /^[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)$/;
+export const MIN_PAIRS = 2;
+export const MAX_PAIRS = 12;
+const ROTATIONS = ['none', 'quarter', 'any'];
 
 function text(value: unknown, max: number, required: boolean): string {
   const s = typeof value === 'string' ? value.trim() : '';
@@ -62,7 +65,39 @@ export function validateAnswer(game: string, raw: unknown): Record<string, unkno
     });
     return { kind, category: oneOf(a.category, CATEGORIES), coords };
   }
+  if (game === 'cards') {
+    // Either a found pair (its number) or a wrong try (the pairs of the two cards, for the teacher's statistics).
+    if (typeof a.ok !== 'boolean') throw new HttpError(400, 'bad_answer');
+    const index = (v: unknown) => {
+      if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v >= MAX_PAIRS) throw new HttpError(400, 'bad_answer');
+      return v;
+    };
+    if (a.ok) return { ok: true, pair: index(a.pair) };
+    return { ok: false, x: index(a.x), y: index(a.y) };
+  }
   throw new HttpError(400, 'bad_game');
+}
+
+export type CardPair = { a: string; b: string; label: string; labelEn: string; ra: number; rb: number };
+export type CardsSettings = { pairs: CardPair[]; arrow: boolean; rotation: string };
+
+/** The deck of the cards game. Angles are fixed here so every student gets the same difficulty. */
+export function validateCards(raw: unknown): CardsSettings {
+  const c = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+  if (!Array.isArray(c.pairs) || c.pairs.length < MIN_PAIRS || c.pairs.length > MAX_PAIRS) throw new HttpError(400, 'bad_cards');
+  const angle = (v: unknown) => {
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 359) throw new HttpError(400, 'bad_cards');
+    return v;
+  };
+  const pairs = c.pairs.map((p: Record<string, unknown>) => {
+    if (typeof p?.a !== 'string' || !PHOTO_RE.test(p.a) || typeof p.b !== 'string' || !PHOTO_RE.test(p.b) || p.a === p.b) {
+      throw new HttpError(400, 'bad_cards');
+    }
+    const label = text(p.label, 120, false);
+    const labelEn = text(p.labelEn ?? '', 120, false);
+    return { a: p.a, b: p.b, label, labelEn, ra: angle(p.ra ?? 0), rb: angle(p.rb ?? 0) };
+  });
+  return { pairs, arrow: c.arrow === true, rotation: oneOf(c.rotation ?? 'none', ROTATIONS) };
 }
 
 export type Task = { lat: number; lon: number; mode: string; format: string; label: string; labelEn?: string; photo?: string };

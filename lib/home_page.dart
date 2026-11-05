@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'aerial_setup_page.dart';
+import 'cards.dart';
+import 'cards_setup_page.dart';
 import 'api.dart';
 import 'coordinates_setup_page.dart';
 import 'l10n.dart';
@@ -251,7 +253,7 @@ class _SessionListState extends State<_SessionList> {
                 onChanged: (v) => setDialog(() => game = v!),
                 child: Column(
                   children: [
-                    for (final g in const ['travel', 'coordinates', 'aerial', 'mapping'])
+                    for (final g in const ['travel', 'coordinates', 'aerial', 'mapping', 'cards'])
                       RadioListTile<String>(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
@@ -289,7 +291,13 @@ class _SessionListState extends State<_SessionList> {
     if (name == null || name.trim().isEmpty || !mounted) return;
 
     List<CoordTask>? tasks;
-    if (game == 'coordinates') {
+    Deck? deck;
+    if (game == 'cards') {
+      deck = await Navigator.of(context).push<Deck>(MaterialPageRoute(
+        builder: (_) => CardsSetupPage(s: s, lang: widget.settings.lang),
+      ));
+      if (deck == null) return;
+    } else if (game == 'coordinates') {
       tasks = await Navigator.of(context).push<List<CoordTask>>(MaterialPageRoute(
         builder: (_) => CoordinatesSetupPage(s: s),
       ));
@@ -301,7 +309,7 @@ class _SessionListState extends State<_SessionList> {
       if (tasks == null) return;
     }
     try {
-      final (session, token) = await _api.createSession(name.trim(), game, tasks: tasks);
+      final (session, token) = await _api.createSession(name.trim(), game, tasks: tasks, cards: deck?.toJson());
       await widget.settings.setToken(session.id, token);
       await _open(session, showQr: true);
     } on Exception catch (e) {
@@ -390,6 +398,7 @@ class _SessionListState extends State<_SessionList> {
                                   'coordinates' => Icons.my_location,
                                   'aerial' => Icons.satellite_alt,
                                   'mapping' => Icons.draw,
+                                  'cards' => Icons.style,
                                   _ => Icons.travel_explore,
                                 }),
                                 title: Text(x.name),

@@ -384,6 +384,115 @@ describe('mapping game', () => {
   });
 });
 
+describe('cards game', () => {
+  const pairs = ['a', 'b', 'c'].map((x, i) => ({ a: `${x}-1.jpg`, b: `${x}-2.jpg`, label: `ადგილი ${i}`, ra: 0, rb: i * 90 }));
+  const deck = { pairs, arrow: true, rotation: 'quarter' };
+
+  async function game(over: Record<string, unknown> = {}) {
+    const res = await call('POST', 'sessions', { name: 'Cards', game: 'cards', cards: deck, ...over });
+    expect(res.status).toBe(201);
+    return (await res.json()) as { session: { id: string }; token: string };
+  }
+
+  const play = (token: string, answer: unknown, participantId = 'student-0001') =>
+    student('submit', { token, submissionId: id('sub'), participantId, answer, lat: 0, lon: 0 });
+
+  const start = (sessionId: string, seconds = 180) => call('POST', `sessions/${sessionId}/timer`, { seconds });
+
+  async function rows(sessionId: string) {
+    return (await (await call('GET', `sessions/${sessionId}/responses`)).json()) as {
+      responses: { round: number; participantId: string; answer: { ok: boolean; pair?: number } }[];
+    };
+  }
+
+  it('hands the deck to students once the clock runs', async () => {
+    const { session, token } = await game();
+    const joined = (await (await student('join', { token })).json()) as { settings: { pairs: unknown[]; arrow: boolean; endsAt?: number } };
+    expect(joined.settings.pairs).toHaveLength(3);
+    expect(joined.settings.arrow).toBe(true);
+    expect(joined.settings.endsAt).toBeUndefined();
+    expect((await play(token, { ok: true, pair: 0 })).status).toBe(409);
+
+    expect((await start(session.id)).status).toBe(200);
+    const running = (await (await student('join', { token })).json()) as { settings: { endsAt: number }; now: number };
+    expect(running.settings.endsAt - running.now).toBeGreaterThan(170);
+  });
+
+  it('keeps a found pair once and counts wrong tries', async () => {
+    const { session, token } = await game();
+    await start(session.id);
+    expect((await play(token, { ok: true, pair: 1 })).status).toBe(201);
+    const again = await play(token, { ok: true, pair: 1 });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ ok: true, duplicate: true });
+    expect((await play(token, { ok: false, x: 0, y: 2 })).status).toBe(201);
+    expect((await play(token, { ok: false, x: 0, y: 2 })).status).toBe(201);
+    // Another student finds the same pair: that is a different answer.
+    expect((await play(token, { ok: true, pair: 1 }, 'student-0002')).status).toBe(201);
+
+    const { responses } = await rows(session.id);
+    expect(responses.filter((r) => r.answer.ok).map((r) => r.participantId)).toEqual(['student-0001', 'student-0002']);
+    expect(responses.filter((r) => !r.answer.ok).map((r) => r.round)).toEqual([100, 101]);
+  });
+
+  it('refuses answers that do not fit the deck', async () => {
+    const { session, token } = await game();
+    await start(session.id);
+    expect((await play(token, { ok: true, pair: 3 })).status).toBe(400);
+    expect((await play(token, { ok: true, pair: 99 })).status).toBe(400);
+    expect((await play(token, { ok: true, pair: -1 })).status).toBe(400);
+    expect((await play(token, { ok: true })).status).toBe(400);
+    expect((await play(token, { ok: false, x: 0, y: 3 })).status).toBe(400);
+    expect((await play(token, { ok: 'yes', pair: 0 })).status).toBe(400);
+    expect((await rows(session.id)).responses).toHaveLength(0);
+  });
+
+  it('stops at the end of the time, and a reset starts over', async () => {
+    const { session, token } = await game();
+    await start(session.id);
+    await env.DB.prepare("UPDATE sessions SET settings = json_set(settings, '$.endsAt', unixepoch() - 60) WHERE id = ?").bind(session.id).run();
+    expect(await (await play(token, { ok: true, pair: 0 })).json()).toEqual({ error: 'time_up' });
+    await call('DELETE', `sessions/${session.id}/responses`);
+    expect(await (await play(token, { ok: true, pair: 0 })).json()).toEqual({ error: 'not_started' });
+    // The deck survives a reset.
+    const joined = (await (await student('join', { token })).json()) as { settings: { pairs: unknown[] } };
+    expect(joined.settings.pairs).toHaveLength(3);
+  });
+
+  it('rejects a bad deck', async () => {
+    const bad = async (cards: unknown) => (await call('POST', 'sessions', { name: 'x', game: 'cards', cards })).status;
+    expect(await bad(undefined)).toBe(400);
+    expect(await bad({ pairs: [] })).toBe(400);
+    expect(await bad({ pairs: pairs.slice(0, 1) })).toBe(400);
+    expect(await bad({ pairs: Array(13).fill(pairs[0]) })).toBe(400);
+    expect(await bad({ pairs: [{ ...pairs[0], a: '../a.jpg' }, pairs[1]] })).toBe(400);
+    expect(await bad({ pairs: [{ ...pairs[0], b: 'a-1.jpg' }, pairs[1]] })).toBe(400);
+    expect(await bad({ pairs: [{ ...pairs[0], ra: 360 }, pairs[1]] })).toBe(400);
+    expect(await bad({ pairs: [{ ...pairs[0], ra: 1.5 }, pairs[1]] })).toBe(400);
+    expect(await bad({ pairs, rotation: 'spin' })).toBe(400);
+    expect(await bad(deck)).toBe(201);
+  });
+
+  it('has a timer for this game, like mapping', async () => {
+    const { session } = await game();
+    expect((await call('POST', `sessions/${session.id}/timer`, { seconds: 60 })).status).toBe(200);
+    expect((await call('POST', `sessions/${session.id}/timer`, { seconds: 4000 })).status).toBe(400);
+  });
+
+  it('keeps the deck and every try through a backup', async () => {
+    const { session, token } = await game();
+    await start(session.id);
+    await play(token, { ok: true, pair: 2 });
+    await play(token, { ok: false, x: 0, y: 1 });
+    const file = await (await call('GET', `backup?session=${session.id}`)).json();
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    expect((await rows(session.id)).responses.map((r) => r.round)).toEqual([2, 100]);
+    const restored = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { session: { settings: { pairs: unknown[] } } };
+    expect(restored.session.settings.pairs).toHaveLength(3);
+  });
+});
+
 describe('coordinates game', () => {
   const tasks = [
     { lat: 41.7, lon: 44.8, mode: 'to_map', format: 'dd', label: 'თბილისი' },

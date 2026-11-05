@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'cards.dart';
 import 'coords.dart';
 import 'mapping.dart';
 import 'models.dart';
@@ -214,4 +215,14 @@ List<LeaderRow> mappingLeaderboard(List<MapObject> objects) {
     return byCount != 0 ? byCount : last[x.participantId]!.compareTo(last[y.participantId]!);
   });
   return rows;
+}
+
+/// One row per student: pairs found and wrong tries.
+String cardsToCsv(List<CardTry> tries, int pairs, String lang) {
+  final out = StringBuffer('\uFEFFnickname,pairs_found,pairs_total,wrong_tries\r\n');
+  for (final r in cardsLeaderboard(tries)) {
+    out.write([_csvText(nickname(r.participantId, lang)), r.found, pairs, r.mistakes].join(','));
+    out.write('\r\n');
+  }
+  return out.toString();
 }

@@ -1,4 +1,4 @@
-import { HttpError, distanceM, middle, scoreFor, validateAnswer, validateTasks, type Task } from './validate';
+import { HttpError, distanceM, middle, scoreFor, validateAnswer, validateCards, validateTasks, type Task } from './validate';
 
 const MAX_RESPONSES_PER_SESSION = 2000;
 const MAX_BODY_BYTES = 8 * 1024;
@@ -11,6 +11,9 @@ const TIME_UP_GRACE_SEC = 15;
 // Drawing the same place twice doesn't count twice.
 const SAME_PLACE_M = 10;
 const MAX_TIMER_SEC = 3600;
+// Wrong tries in the cards game are told apart from found pairs by their number.
+const MISTAKE_ROUND_FROM = 100;
+const MAX_MISTAKES_PER_STUDENT = 300;
 
 const CORS = {
   'Access-Control-Allow-Origin': '*', // no cookies: every teacher call carries its own bearer key
@@ -67,7 +70,9 @@ type SessionRow = {
 };
 
 const SESSION_COLUMNS = 'id, name, game, status, rev, archived, settings, created_at';
-const GAMES = ['travel', 'coordinates', 'aerial', 'mapping'];
+const GAMES = ['travel', 'coordinates', 'aerial', 'mapping', 'cards'];
+// Games played against the teacher's clock.
+const TIMED_GAMES = ['mapping', 'cards'];
 // Games made of tasks that the server scores.
 const TASK_GAMES = ['coordinates', 'aerial'];
 
@@ -180,6 +185,7 @@ async function submit(env: Env, request: Request): Promise<Response> {
   }
   const answer = validateAnswer(s.game, body.answer);
   if (s.game === 'mapping') return submitObject(env, s, submissionId, participantId, answer);
+  if (s.game === 'cards') return submitCardTry(env, s, submissionId, participantId, answer);
 
   const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM responses WHERE session_id = ? AND participant_id != ?')
     .bind(s.id, participantId)
@@ -213,6 +219,13 @@ async function submit(env: Env, request: Request): Promise<Response> {
   return json({ ok: true, duplicate: false }, 201);
 }
 
+/** The clock must have been started, and not ended by more than the grace. */
+function requireRunning(s: SessionRow): void {
+  const { endsAt } = JSON.parse(s.settings) as { endsAt?: number };
+  if (endsAt === undefined) throw new HttpError(409, 'not_started');
+  if (nowSec() > endsAt + TIME_UP_GRACE_SEC) throw new HttpError(409, 'time_up');
+}
+
 async function submitObject(
   env: Env,
   s: SessionRow,
@@ -220,9 +233,7 @@ async function submitObject(
   participantId: string,
   answer: Record<string, unknown>,
 ): Promise<Response> {
-  const { endsAt } = JSON.parse(s.settings) as { endsAt?: number };
-  if (endsAt === undefined) throw new HttpError(409, 'not_started');
-  if (nowSec() > endsAt + TIME_UP_GRACE_SEC) throw new HttpError(409, 'time_up');
+  requireRunning(s);
 
   const { results: mine } = await env.DB.prepare('SELECT round, answer, lat, lon FROM responses WHERE session_id = ? AND participant_id = ?')
     .bind(s.id, participantId)
@@ -254,6 +265,48 @@ async function submitObject(
   return json({ ok: true, duplicate: false }, 201);
 }
 
+/** A found pair or a wrong try in the cards game. A pair counts once per student: its number is the round. */
+async function submitCardTry(
+  env: Env,
+  s: SessionRow,
+  submissionId: string,
+  participantId: string,
+  answer: Record<string, unknown>,
+): Promise<Response> {
+  requireRunning(s);
+  const { pairs } = JSON.parse(s.settings) as { pairs?: unknown[] };
+  const total = pairs?.length ?? 0;
+  if (answer.ok === true && (answer.pair as number) >= total) throw new HttpError(400, 'bad_round');
+  if (answer.ok === false && ((answer.x as number) >= total || (answer.y as number) >= total)) throw new HttpError(400, 'bad_round');
+
+  const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM responses WHERE session_id = ?').bind(s.id).first<{ n: number }>();
+  if ((count?.n ?? 0) >= MAX_RESPONSES_PER_SESSION) throw new HttpError(429, 'session_full');
+
+  let round: number;
+  if (answer.ok === true) {
+    round = answer.pair as number;
+  } else {
+    const last = await env.DB.prepare('SELECT COUNT(*) AS n, MAX(round) AS top FROM responses WHERE session_id = ? AND participant_id = ? AND round >= ?')
+      .bind(s.id, participantId, MISTAKE_ROUND_FROM)
+      .first<{ n: number; top: number | null }>();
+    if ((last?.n ?? 0) >= MAX_MISTAKES_PER_STUDENT) throw new HttpError(409, 'too_many_objects');
+    round = (last?.top ?? MISTAKE_ROUND_FROM - 1) + 1;
+  }
+  const stored = await env.DB.batch([
+    env.DB.prepare('INSERT OR IGNORE INTO responses (id, session_id, participant_id, round, answer, lat, lon, created_at) VALUES (?, ?, ?, ?, ?, 0, 0, ?)').bind(
+      submissionId,
+      s.id,
+      participantId,
+      round,
+      JSON.stringify(answer),
+      nowSec(),
+    ),
+    bumpRev(env, s.id),
+  ]);
+  // A pair found twice (a second device, a late retry) is kept once.
+  return json({ ok: true, duplicate: stored[0].meta.changes === 0 }, stored[0].meta.changes === 0 ? 200 : 201);
+}
+
 // --- Teacher endpoints ---
 
 async function listSessions(env: Env): Promise<Response> {
@@ -266,10 +319,14 @@ async function listSessions(env: Env): Promise<Response> {
 }
 
 async function createSession(env: Env, request: Request): Promise<Response> {
-  const body = await readBody<{ name?: unknown; game?: unknown; tasks?: unknown }>(request);
+  const body = await readBody<{ name?: unknown; game?: unknown; tasks?: unknown; cards?: unknown }>(request);
   const name = cleanName(body.name);
   if (typeof body.game !== 'string' || !GAMES.includes(body.game)) throw new HttpError(400, 'bad_game');
-  const settings = TASK_GAMES.includes(body.game) ? { tasks: validateTasks(body.game, body.tasks) } : {};
+  const settings = TASK_GAMES.includes(body.game)
+    ? { tasks: validateTasks(body.game, body.tasks) }
+    : body.game === 'cards'
+      ? validateCards(body.cards)
+      : {};
   const id = crypto.randomUUID();
   const token = randomToken();
   await env.DB.prepare('INSERT INTO sessions (id, name, game, token_hash, settings, created_at) VALUES (?, ?, ?, ?, ?, ?)')
@@ -300,10 +357,10 @@ async function updateSession(env: Env, request: Request, id: string): Promise<Re
   return json({ session: sessionJson(await sessionOr404(env, id)) });
 }
 
-/** Starts the mapping game's clock for everyone, changes the time left, or with 0 seconds stops it. */
+/** Starts the clock of a timed game for everyone, changes the time left, or with 0 seconds stops it. */
 async function setTimer(env: Env, request: Request, id: string): Promise<Response> {
   const s = await sessionOr404(env, id);
-  if (s.game !== 'mapping') throw new HttpError(400, 'bad_game');
+  if (!TIMED_GAMES.includes(s.game)) throw new HttpError(400, 'bad_game');
   const { seconds, center, zoom } = await readBody<{ seconds?: unknown; center?: unknown; zoom?: unknown }>(request);
   if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 0 || seconds > MAX_TIMER_SEC) {
     throw new HttpError(400, 'bad_timer');
@@ -401,7 +458,7 @@ async function backup(env: Env, url: URL): Promise<Response> {
   });
 }
 
-type BackupSession = { id?: unknown; name?: unknown; game?: unknown; archived?: unknown; settings?: { tasks?: unknown }; createdAt?: unknown };
+type BackupSession = { id?: unknown; name?: unknown; game?: unknown; archived?: unknown; settings?: { tasks?: unknown; pairs?: unknown; arrow?: unknown; rotation?: unknown }; createdAt?: unknown };
 type BackupResponse = {
   id?: unknown;
   sessionId?: unknown;
@@ -417,6 +474,17 @@ type BackupResponse = {
 function restoredTasks(game: string, raw: unknown): Task[] {
   try {
     return validateTasks(game, raw);
+  } catch {
+    throw new HttpError(400, 'bad_backup');
+  }
+}
+
+/** The settings a restored session keeps: the task list or the deck. The clock is not restored. */
+function restoredSettings(game: string, tasks: Task[], raw: BackupSession['settings']): object {
+  if (TASK_GAMES.includes(game)) return { tasks };
+  if (game !== 'cards') return {};
+  try {
+    return validateCards(raw);
   } catch {
     throw new HttpError(400, 'bad_backup');
   }
@@ -449,7 +517,7 @@ async function restore(env: Env, request: Request): Promise<Response> {
         s.game,
         await sha256(randomToken()),
         s.archived === true ? 1 : 0,
-        JSON.stringify(TASK_GAMES.includes(s.game) ? { tasks } : {}),
+        JSON.stringify(restoredSettings(s.game, tasks, s.settings)),
         s.createdAt,
       ),
     );
@@ -470,8 +538,8 @@ async function restore(env: Env, request: Request): Promise<Response> {
     if (!valid) throw new HttpError(400, 'bad_backup');
     const answer = validateAnswer(session.game, r.answer);
     const taskGame = TASK_GAMES.includes(session.game);
-    // A mapping student has many objects, told apart by their number.
-    const round = taskGame || (session.game === 'mapping' && typeof r.round === 'number') ? r.round : 0;
+    // A mapping student has many objects and a cards student many tries, told apart by their number.
+    const round = taskGame || (TIMED_GAMES.includes(session.game) && typeof r.round === 'number') ? r.round : 0;
     const task = taskGame && typeof round === 'number' ? session.tasks[round] : undefined;
     if (taskGame && !task) throw new HttpError(400, 'bad_backup');
     // Scores are worked out again, so an edited file can't change them.

@@ -70,6 +70,9 @@ abstract class SessionPageState<W extends SessionPageBase> extends State<W> with
   double get fitMaxZoom => 10;
   double get singlePointZoom => 6;
 
+  /// False for a game with no map on the teacher's side: the panel is the whole page.
+  bool get hasMap => true;
+
   /// The coordinate grid this game uses.
   Widget gridLayer() => const GraticuleLayer();
 
@@ -447,7 +450,7 @@ abstract class SessionPageState<W extends SessionPageBase> extends State<W> with
         if (session.status == 'closed') _item('resume', Icons.lock_open, s['reopen']),
         const PopupMenuDivider(),
         _item('csv', Icons.table_chart, s['export_csv']),
-        _item('geojson', Icons.map, s['export_geojson']),
+        if (hasMap) _item('geojson', Icons.map, s['export_geojson']),
         _item('json', Icons.save, s['export_json']),
         const PopupMenuDivider(),
         _item('rename', Icons.edit, s['rename']),
@@ -458,7 +461,7 @@ abstract class SessionPageState<W extends SessionPageBase> extends State<W> with
 
   @override
   Widget build(BuildContext context) {
-    if (present) {
+    if (present && hasMap) {
       return Scaffold(
         body: Stack(
           children: [
@@ -501,15 +504,16 @@ abstract class SessionPageState<W extends SessionPageBase> extends State<W> with
         ),
         actions: [
           IconButton(tooltip: s['qr_show'], icon: const Icon(Icons.qr_code), onPressed: _showQr),
-          IconButton(
-            tooltip: s['present'],
-            icon: const Icon(Icons.fullscreen),
-            onPressed: () => setState(() => present = true),
-          ),
+          if (hasMap)
+            IconButton(
+              tooltip: s['present'],
+              icon: const Icon(Icons.fullscreen),
+              onPressed: () => setState(() => present = true),
+            ),
           PopupMenuButton<String>(onSelected: _menu, itemBuilder: (_) => _menuItems()),
         ],
       ),
-      bottomNavigationBar: wide
+      bottomNavigationBar: wide || !hasMap
           ? null
           : NavigationBar(
               height: 64,
@@ -520,7 +524,9 @@ abstract class SessionPageState<W extends SessionPageBase> extends State<W> with
                 NavigationDestination(icon: const Icon(Icons.list), label: s['answers']),
               ],
             ),
-      body: wide
+      body: !hasMap
+          ? panel()
+          : wide
           ? Row(
               children: [
                 Expanded(child: _liveMap),

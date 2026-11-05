@@ -4,7 +4,7 @@ Classroom geography games. The teacher shows a QR code, students answer anonymou
 
 საკლასო გეოგრაფიული თამაშები. მასწავლებელი აჩვენებს QR კოდს, მოსწავლეები ტელეფონიდან ანონიმურად პასუხობენ, პასუხები კი პირდაპირ რუკაზე ჩნდება.
 
-**Status:** The travel, coordinates, aerial photo and mapping games work from QR code to live map. Live at https://geoclass.qgis.ge. The Android build is ready to publish, see [docs/play-store.md](docs/play-store.md).
+**Status:** The travel, coordinates, aerial photo, mapping and cards games work from QR code to live map. Live at https://geoclass.qgis.ge. The Android build is ready to publish, see [docs/play-store.md](docs/play-store.md).
 
 | Stage | Contents | Status |
 |---|---|---|
@@ -54,6 +54,27 @@ Photos come only from this repository, with no outside imagery service:
 3. Run `flutter test`, which names any mistake in the list, then build and deploy as usual.
 
 Students' phones receive the photo names and coordinates so the app can score offline. A student who reads the page's network traffic could find them, and this is a classroom game, so that is accepted. Neutral file names like `p01.jpg` and photos without GPS data in the file avoid giving the answer away more easily.
+
+## The cards game
+
+Every student gets the same table of cards, two for each place, at different scales and, if the teacher wants, turned. They find the pairs against the teacher's clock. The ranking is pairs found, then fewer wrong tries, then whoever was sooner. The teacher also sees which pairs were found least and mixed up most.
+
+The teacher chooses the pairs, how the cards are turned (not at all, quarter turns or any angle) and whether a north arrow shows on each card. With the arrow on, a card can be opened full screen and, in the Android app, turned by the phone's compass so its north points to the real north. The compass is not offered on the web, where phones report it unreliably. It stays on the device and is never sent.
+
+Pictures come only from this repository, like the aerial photos:
+
+1. Put the files in `web/cards/`, two for each place: the same place at two scales, north up. JPEG, PNG or WebP, names of letters, digits, `-` and `_` only, roughly square, about 800 px and under 200 KB each.
+2. List each place in `web/cards/index.json`. `level` is how different the two scales are, 1 (the same) to 3, and only helps the teacher choose:
+
+   ```json
+   [
+     { "a": "tbilisi-1.jpg", "b": "tbilisi-2.jpg", "ka": "თბილისი", "en": "Tbilisi", "level": 2 }
+   ]
+   ```
+
+3. Run `flutter test`, which names any mistake in the list, then build and deploy as usual.
+
+The app turns the cards itself, so a place needs no rotated copies. Students' phones receive the file names of the chosen pairs, which say which cards match. This is a classroom game, so that is accepted; neutral names like `p01-1.jpg` and `p01-2.jpg` make it less obvious.
 
 ## How it fits together
 

@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
+import 'cards_play.dart';
 import 'coordinates_play.dart';
 import 'geo_map.dart';
 import 'l10n.dart';
@@ -230,6 +231,14 @@ class _StudentPageState extends State<StudentPage> {
         _Stage.queued => _message(Icons.cloud_upload, s['queued_title'], body: s['queued_body'], action: _flush, actionLabel: s['retry']),
         _Stage.form when _status == 'paused' => _message(Icons.pause_circle, s['session_paused'], action: _load, actionLabel: s['retry']),
         _Stage.form when _status == 'closed' => _message(Icons.lock, s['session_closed']),
+        _Stage.form when _game == 'cards' => CardsPlay(
+            s: s,
+            token: widget.token,
+            settings: _settings,
+            now: _now,
+            api: _api,
+            onStopped: (status) => setState(() => _status = status),
+          ),
         _Stage.form when _game == 'mapping' => MappingPlay(
             s: s,
             token: widget.token,
