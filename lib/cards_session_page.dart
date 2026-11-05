@@ -141,7 +141,7 @@ class _CardsSessionPageState extends SessionPageState<CardsSessionPage> {
             onSelectionChanged: (v) => setState(() => _showPairs = v.first),
           ),
           const SizedBox(height: 8),
-          if (_showPairs) ...[..._pairRows(), Center(child: CardsCredit(s: s))] else ..._leaderRows(),
+          if (_showPairs) ...[..._pairRows(), const Center(child: CardsCredit())] else ..._leaderRows(),
         ],
       ),
     ),

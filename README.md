@@ -74,7 +74,7 @@ Pictures come only from this repository, like the aerial photos:
 
 3. Run `flutter test`, which names any mistake in the list, then build and deploy as usual.
 
-The cards screens credit OpenStreetMap, because that is where these pictures come from. Pictures from another source need that credit changed in `cards_credit` in `lib/l10n.dart`. Turn off labels when making them, or students will compare the names instead of the map. PNG keeps map lines sharper than JPEG.
+The cards screens carry the credit that OpenStreetMap and Tracestrack Topo require, because these pictures come from those two layers (Tracestrack's terms are CC BY 4.0). Each osm.org layer has its own terms, so pictures from another layer or source need `CardsCredit` in `lib/cards.dart` changed. Turn off labels when making them, or students will compare the names instead of the map. PNG keeps map lines sharper than JPEG.
 
 The app turns the cards itself, so a place needs no rotated copies. Students' phones receive the file names of the chosen pairs, which say which cards match. This is a classroom game, so that is accepted; neutral names like `p01-1.jpg` and `p01-2.jpg` make it less obvious.
 

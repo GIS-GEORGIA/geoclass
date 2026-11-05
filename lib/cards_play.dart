@@ -355,7 +355,7 @@ class _CardsPlayState extends State<CardsPlay> {
                       ),
                   ],
                 ),
-                Center(child: CardsCredit(s: s)),
+                const Center(child: CardsCredit()),
               ],
             ),
           ),

@@ -219,17 +219,27 @@ List<CardsRow> cardsLeaderboard(List<CardTry> tries) {
   return (found: found, confused: confused);
 }
 
-/// The credit that OpenStreetMap's licence asks for wherever its maps are shown. Opens its copyright page.
+/// The credits the map licences ask for wherever these pictures are shown, in the wording they require.
 class CardsCredit extends StatelessWidget {
-  final S s;
   final Color? color;
-  const CardsCredit({super.key, required this.s, this.color});
+  const CardsCredit({super.key, this.color});
+
+  static const data = "Data: © OpenStreetMap contributors, SRTM, GEBCO, SONNY's LiDAR DTM, NASADEM, ESA WorldCover";
+  static const maps = 'Maps © Tracestrack';
+
+  Widget _link(BuildContext context, String text, String url) => TextButton(
+    style: TextButton.styleFrom(foregroundColor: color, visualDensity: VisualDensity.compact),
+    onPressed: () => launchUrl(Uri.parse(url)),
+    child: Text(text, textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: color)),
+  );
 
   @override
-  Widget build(BuildContext context) => TextButton(
-    style: TextButton.styleFrom(foregroundColor: color, visualDensity: VisualDensity.compact),
-    onPressed: () => launchUrl(Uri.parse('https://www.openstreetmap.org/copyright')),
-    child: Text(s['cards_credit'], textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: color)),
+  Widget build(BuildContext context) => Wrap(
+    alignment: WrapAlignment.center,
+    children: [
+      _link(context, data, 'https://www.openstreetmap.org/copyright'),
+      _link(context, maps, 'https://www.tracestrack.com/credits/'),
+    ],
   );
 }
 
@@ -397,12 +407,12 @@ class _CardZoomState extends State<_CardZoom> {
               ],
             ),
           ),
-          Positioned(left: 0, right: 0, bottom: 0, child: Center(child: CardsCredit(s: s, color: Colors.white70))),
+          Positioned(left: 0, right: 0, bottom: 0, child: const Center(child: CardsCredit(color: Colors.white70))),
           if (_compass || _noSensor)
             Positioned(
               left: 16,
               right: 16,
-              bottom: 44,
+              bottom: 100,
               child: Text(
                 _noSensor ? s['cards_compass_none'] : (live ? s['cards_compass_on'] : s['cards_compass_wait']),
                 textAlign: TextAlign.center,

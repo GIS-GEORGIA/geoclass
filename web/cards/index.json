@@ -12,5 +12,33 @@
     "ka": "შაორის წყალსაცავი",
     "en": "Shaori reservoir",
     "level": 2
+  },
+  {
+    "a": "p03-1.webp",
+    "b": "p03-2.webp",
+    "ka": "ენგურის წყალსაცავი",
+    "en": "Enguri reservoir",
+    "level": 2
+  },
+  {
+    "a": "p04-1.webp",
+    "b": "p04-2.webp",
+    "ka": "ზუგდიდი",
+    "en": "Zugdidi",
+    "level": 2
+  },
+  {
+    "a": "p05-1.webp",
+    "b": "p05-2.webp",
+    "ka": "პალიასტომის ტბა",
+    "en": "Paliastomi lake",
+    "level": 2
+  },
+  {
+    "a": "p06-1.webp",
+    "b": "p06-2.webp",
+    "ka": "ლაგოდეხი",
+    "en": "Lagodekhi",
+    "level": 2
   }
 ]

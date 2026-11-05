@@ -197,7 +197,7 @@ class _CardsSetupPageState extends State<CardsSetupPage> {
                         subtitle: Text(s.f('cards_level', [p.level])),
                         onChanged: (v) => _toggle(p, v!),
                       ),
-                    Center(child: CardsCredit(s: s)),
+                    const Center(child: CardsCredit()),
                   ],
                 ),
               ),
