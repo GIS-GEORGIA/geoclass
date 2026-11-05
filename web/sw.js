@@ -33,7 +33,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   // Photos added by the teacher must show up at once.
-  if (url.pathname === '/aerial/index.json') return;
+  if (url.pathname === '/aerial/index.json' || url.pathname === '/cards/index.json') return;
   // Ask the server first, so every file comes from the same version of the app.
   // The saved copy is only for when the server can't be reached in time.
   event.respondWith(
