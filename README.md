@@ -74,6 +74,8 @@ Pictures come only from this repository, like the aerial photos:
 
 3. Run `flutter test`, which names any mistake in the list, then build and deploy as usual.
 
+The cards screens credit OpenStreetMap, because that is where these pictures come from. Pictures from another source need that credit changed in `cards_credit` in `lib/l10n.dart`. Turn off labels when making them, or students will compare the names instead of the map. PNG keeps map lines sharper than JPEG.
+
 The app turns the cards itself, so a place needs no rotated copies. Students' phones receive the file names of the chosen pairs, which say which cards match. This is a classroom game, so that is accepted; neutral names like `p01-1.jpg` and `p01-2.jpg` make it less obvious.
 
 ## How it fits together

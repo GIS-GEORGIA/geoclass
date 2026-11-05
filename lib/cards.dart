@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
 import 'l10n.dart';
@@ -218,6 +219,20 @@ List<CardsRow> cardsLeaderboard(List<CardTry> tries) {
   return (found: found, confused: confused);
 }
 
+/// The credit that OpenStreetMap's licence asks for wherever its maps are shown. Opens its copyright page.
+class CardsCredit extends StatelessWidget {
+  final S s;
+  final Color? color;
+  const CardsCredit({super.key, required this.s, this.color});
+
+  @override
+  Widget build(BuildContext context) => TextButton(
+    style: TextButton.styleFrom(foregroundColor: color, visualDensity: VisualDensity.compact),
+    onPressed: () => launchUrl(Uri.parse('https://www.openstreetmap.org/copyright')),
+    child: Text(s['cards_credit'], textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: color)),
+  );
+}
+
 /// The north arrow that sits on a turned card.
 class NorthArrow extends StatelessWidget {
   final int angle;
@@ -382,11 +397,12 @@ class _CardZoomState extends State<_CardZoom> {
               ],
             ),
           ),
+          Positioned(left: 0, right: 0, bottom: 0, child: Center(child: CardsCredit(s: s, color: Colors.white70))),
           if (_compass || _noSensor)
             Positioned(
               left: 16,
               right: 16,
-              bottom: 24,
+              bottom: 44,
               child: Text(
                 _noSensor ? s['cards_compass_none'] : (live ? s['cards_compass_on'] : s['cards_compass_wait']),
                 textAlign: TextAlign.center,

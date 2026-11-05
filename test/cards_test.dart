@@ -227,6 +227,7 @@ void main() {
       expect(tiles(tester), hasLength(6));
       expect(find.byType(NorthArrow), findsNWidgets(6));
       expect(find.text(s.f('cards_found', [0, 3])), findsOneWidget);
+      expect(find.text(s['cards_credit']), findsOneWidget);
       await close(tester);
     });
 

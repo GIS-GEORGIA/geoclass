@@ -355,6 +355,7 @@ class _CardsPlayState extends State<CardsPlay> {
                       ),
                   ],
                 ),
+                Center(child: CardsCredit(s: s)),
               ],
             ),
           ),
