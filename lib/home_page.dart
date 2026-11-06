@@ -7,6 +7,8 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'aerial_setup_page.dart';
 import 'cards.dart';
 import 'cards_setup_page.dart';
+import 'evidence.dart';
+import 'evidence_setup_page.dart';
 import 'api.dart';
 import 'coordinates_setup_page.dart';
 import 'l10n.dart';
@@ -253,7 +255,7 @@ class _SessionListState extends State<_SessionList> {
                 onChanged: (v) => setDialog(() => game = v!),
                 child: Column(
                   children: [
-                    for (final g in const ['travel', 'coordinates', 'aerial', 'mapping', 'cards'])
+                    for (final g in const ['travel', 'coordinates', 'aerial', 'evidence', 'mapping', 'cards'])
                       RadioListTile<String>(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
@@ -292,7 +294,13 @@ class _SessionListState extends State<_SessionList> {
 
     List<CoordTask>? tasks;
     Deck? deck;
-    if (game == 'cards') {
+    List<EvidenceTask>? evidence;
+    if (game == 'evidence') {
+      evidence = await Navigator.of(context).push<List<EvidenceTask>>(MaterialPageRoute(
+        builder: (_) => EvidenceSetupPage(s: s),
+      ));
+      if (evidence == null) return;
+    } else if (game == 'cards') {
       deck = await Navigator.of(context).push<Deck>(MaterialPageRoute(
         builder: (_) => CardsSetupPage(s: s, lang: widget.settings.lang),
       ));
@@ -309,7 +317,13 @@ class _SessionListState extends State<_SessionList> {
       if (tasks == null) return;
     }
     try {
-      final (session, token) = await _api.createSession(name.trim(), game, tasks: tasks, cards: deck?.toJson());
+      final (session, token) = await _api.createSession(
+        name.trim(),
+        game,
+        tasks: tasks,
+        evidence: evidence?.map((t) => t.toJson()).toList(),
+        cards: deck?.toJson(),
+      );
       await widget.settings.setToken(session.id, token);
       await _open(session, showQr: true);
     } on Exception catch (e) {
@@ -399,6 +413,7 @@ class _SessionListState extends State<_SessionList> {
                                   'aerial' => Icons.satellite_alt,
                                   'mapping' => Icons.draw,
                                   'cards' => Icons.style,
+                                  'evidence' => Icons.receipt_long,
                                   _ => Icons.travel_explore,
                                 }),
                                 title: Text(x.name),

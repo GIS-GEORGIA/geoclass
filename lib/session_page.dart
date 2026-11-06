@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 
 import 'cards_session_page.dart';
 import 'coordinates_session_page.dart';
+import 'evidence_session_page.dart';
 import 'export.dart';
 import 'geo_map.dart';
 import 'mapping_session_page.dart';
@@ -17,6 +18,7 @@ import 'settings.dart';
 Widget sessionPageFor(Settings settings, SessionInfo session, {bool showQr = false}) => switch (session.game) {
       'travel' => TravelSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
       'cards' => CardsSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
+      'evidence' => EvidenceSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
       'mapping' => MappingSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
       _ => CoordinatesSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
     };

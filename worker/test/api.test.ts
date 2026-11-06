@@ -675,6 +675,127 @@ describe('aerial game', () => {
   });
 });
 
+describe('evidence game', () => {
+  const tasks = [
+    { kind: 'receipt', lat: 41.6938, lon: 44.8015, shown: 'dms', ask: 'dd', questions: ['coords', 'map', 'name'], names: ['თავისუფლების მოედანი', 'Freedom Square'], converter: true, seed: 7 },
+    { kind: 'dashcam', lat: 42.2679, lon: 42.7181, shown: 'utm', ask: 'dm', questions: ['map'], names: [], converter: false, seed: 99 },
+  ];
+  const game = async () => {
+    const res = await call('POST', 'sessions', { name: 'IX b', game: 'evidence', tasks });
+    expect(res.status).toBe(201);
+    return (await res.json()) as { session: { id: string }; token: string };
+  };
+  const participant = 'par-evidence-1';
+  const play = (token: string, round: number, answer: Record<string, unknown>, lat = 0, lon = 0) =>
+    student('submit', { token, submissionId: id('sub'), participantId: participant, round, answer, lat, lon });
+  type Row = { id: string; round: number; score: number; distanceM: number | null; accepted: boolean };
+  const rows = async (sessionId: string) => (await (await call('GET', `sessions/${sessionId}/responses`)).json()) as { responses: Row[] };
+
+  it('keeps the tasks in one shape and refuses bad ones', async () => {
+    await game();
+    const list = (await (await call('GET', 'sessions')).json()) as { sessions: { settings: { tasks: { questions: string[]; converter: boolean }[] } }[] };
+    expect(list.sessions[0].settings.tasks[1].questions).toEqual(['map']);
+    expect(list.sessions[0].settings.tasks[1].converter).toBe(false);
+    const bad = [
+      { ...tasks[0], kind: 'passport' },
+      { ...tasks[0], shown: 'mgrs' },
+      { ...tasks[0], questions: [] },
+      { ...tasks[0], questions: ['coords', 'oops'] },
+      { ...tasks[0], names: [] }, // asks for the name without accepting any
+      { ...tasks[0], seed: -1 },
+      { ...tasks[0], lat: 95 },
+    ];
+    for (const t of bad) {
+      expect((await call('POST', 'sessions', { name: 'x', game: 'evidence', tasks: [t] })).status).toBe(400);
+    }
+  });
+
+  it('scores typed coordinates strictly and a map tap like the coordinates game', async () => {
+    const { session, token } = await game();
+    expect((await play(token, 0, { q: 'coords', raw: '41.69380, 44.80150', format: 'dd' }, 41.6938, 44.8015)).status).toBe(201);
+    // About 1 km off: a full score on the map, very little for typed coordinates.
+    expect((await play(token, 0, { q: 'map' }, 41.7028, 44.8015)).status).toBe(201);
+    const second = await student('submit', { token, submissionId: id('sub'), participantId: 'par-evidence-2', round: 0, answer: { q: 'coords', raw: 'x', format: 'dd' }, lat: 41.7028, lon: 44.8015 });
+    expect(second.status).toBe(201);
+    const list = (await rows(session.id)).responses;
+    const byRound = (r: number) => list.filter((x) => x.round === r);
+    expect(byRound(0).map((r) => r.score).sort((a, b) => b - a)).toEqual([100, 31]);
+    expect(byRound(1)[0].score).toBe(100);
+  });
+
+  it('matches the name loosely and keeps only the first answer', async () => {
+    const { session, token } = await game();
+    const res = await play(token, 0, { q: 'name', name: '  თავისუფლების  მოედანი! ' });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { score: number }).score).toBe(100);
+    const again = await play(token, 0, { q: 'name', name: 'something else' });
+    expect(again.status).toBe(200);
+    const [row] = (await rows(session.id)).responses;
+    expect(row.round).toBe(2);
+    expect(row.score).toBe(100);
+    expect(row.distanceM).toBeNull();
+    const other = await student('submit', { token, submissionId: id('sub'), participantId: 'par-evidence-3', round: 0, answer: { q: 'name', name: 'freedom-square' }, lat: 0, lon: 0 });
+    expect(((await other.json()) as { score: number }).score).toBe(100);
+  });
+
+  it('refuses a question the task does not ask, or a missing task', async () => {
+    const { token } = await game();
+    expect((await play(token, 1, { q: 'name', name: 'Kutaisi' })).status).toBe(400);
+    expect((await play(token, 5, { q: 'map' }, 41, 44)).status).toBe(400);
+    expect((await play(token, 0, { q: 'coords', raw: '', format: 'dd' }, 41, 44)).status).toBe(400);
+    expect((await play(token, 0, { q: 'coords', raw: '41 44', format: 'mgrs' }, 41, 44)).status).toBe(400);
+  });
+
+  it('lets the teacher count an answer as right, and take it back', async () => {
+    const { session, token } = await game();
+    await play(token, 0, { q: 'name', name: 'Freedom Sqare' });
+    const [row] = (await rows(session.id)).responses;
+    expect(row.score).toBe(0);
+    expect(row.accepted).toBe(false);
+    expect((await call('PATCH', `responses/${row.id}`, { accepted: true })).status).toBe(200);
+    expect((await rows(session.id)).responses[0].accepted).toBe(true);
+    expect((await rows(session.id)).responses[0].score).toBe(0); // the real score stays, for undoing
+    expect((await call('PATCH', `responses/${row.id}`, { accepted: false })).status).toBe(200);
+    expect((await rows(session.id)).responses[0].accepted).toBe(false);
+    expect((await call('PATCH', `responses/${row.id}`, { accepted: 'yes' })).status).toBe(400);
+    expect((await call('PATCH', `responses/${row.id}`, { accepted: true }, {})).status).toBe(401);
+  });
+
+  it('marks answers as accepted only in this game', async () => {
+    const { token } = await newSession();
+    await send(token);
+    const list = (await (await call('GET', 'sessions')).json()) as { sessions: { id: string }[] };
+    const [row] = (await responses(list.sessions[0].id)).responses;
+    expect((await call('PATCH', `responses/${row.id}`, { accepted: true })).status).toBe(400);
+  });
+
+  it('keeps tasks, answers and the teacher marks through a backup, scoring again', async () => {
+    const { session, token } = await game();
+    await play(token, 0, { q: 'name', name: 'Freedom Sqare' });
+    await play(token, 1, { q: 'map' }, 42.2679, 42.7181);
+    const [first] = (await rows(session.id)).responses;
+    await call('PATCH', `responses/${first.id}`, { accepted: true });
+    const file = (await (await call('GET', `backup?session=${session.id}`)).json()) as { responses: { score: number; round: number }[] };
+    await call('DELETE', `sessions/${session.id}`);
+    file.responses[0].score = 100;
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    const after = (await rows(session.id)).responses;
+    expect(after.map((r) => [r.round, r.score, r.accepted])).toEqual([
+      [2, 0, true],
+      [4, 100, false],
+    ]);
+  });
+
+  it('refuses a backup whose round and answer disagree', async () => {
+    const { session, token } = await game();
+    await play(token, 0, { q: 'name', name: 'x' });
+    const file = (await (await call('GET', `backup?session=${session.id}`)).json()) as { responses: { round: number }[] };
+    await call('DELETE', `sessions/${session.id}`);
+    file.responses[0].round = 1;
+    expect((await call('POST', 'restore', file)).status).toBe(400);
+  });
+});
+
 describe('paths outside the API', () => {
   it('answer 404 without asking for a key', async () => {
     expect((await call('GET', '../aerial/missing.jpg', undefined, {})).status).toBe(404);

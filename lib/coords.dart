@@ -206,6 +206,17 @@ LatLng? parseAs(String format, String text, {int? zone}) => switch (format) {
       _ => parseDd(text),
     };
 
+/// One latitude or longitude: 41.6938, 41 41.63, 41°41′38″ N or 41,6938. S, W or a minus make it negative.
+double? parseOne(String text) {
+  final t = text.trim().toUpperCase().replaceAll(',', '.');
+  final n = _numbers(t);
+  if (n.isEmpty || n.length > 3) return null;
+  if (n.length > 1 && (n[0] != n[0].truncateToDouble() || n[1] >= 60)) return null;
+  if (n.length > 2 && (n[1] != n[1].truncateToDouble() || n[2] >= 60)) return null;
+  final value = n[0] + (n.length > 1 ? n[1] / 60 : 0) + (n.length > 2 ? n[2] / 3600 : 0);
+  return t.startsWith('-') || t.contains('S') || t.contains('W') ? -value : value;
+}
+
 /// For the teacher's box, which takes any format.
 LatLng? parseAny(String text) => parseDd(text) ?? parseUtm(text) ?? parseDms(text);
 

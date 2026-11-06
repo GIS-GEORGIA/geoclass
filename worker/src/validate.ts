@@ -18,6 +18,10 @@ const PHOTO_RE = /^[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)$/;
 export const MIN_PAIRS = 2;
 export const MAX_PAIRS = 12;
 const ROTATIONS = ['none', 'quarter', 'any'];
+const EVIDENCE_KINDS = ['receipt', 'dashcam'];
+// The questions of an evidence task. A task's answers are told apart by round = task * 3 + question.
+export const QUESTIONS = ['coords', 'map', 'name'];
+const MAX_NAMES = 10;
 
 function text(value: unknown, max: number, required: boolean): string {
   const s = typeof value === 'string' ? value.trim() : '';
@@ -74,6 +78,12 @@ export function validateAnswer(game: string, raw: unknown): Record<string, unkno
     };
     if (a.ok) return { ok: true, pair: index(a.pair) };
     return { ok: false, x: index(a.x), y: index(a.y) };
+  }
+  if (game === 'evidence') {
+    const q = oneOf(a.q, QUESTIONS);
+    if (q === 'coords') return { q, raw: text(a.raw, 60, true), format: oneOf(a.format, FORMATS) };
+    if (q === 'name') return { q, name: text(a.name, 120, true) };
+    return { q };
   }
   throw new HttpError(400, 'bad_game');
 }
@@ -147,4 +157,63 @@ export function scoreFor(distance: number): number {
   if (distance <= 1000) return 100;
   if (distance >= 100000) return 0;
   return Math.round(100 * (1 - Math.log10(distance / 1000) / 2));
+}
+
+export type EvidenceTask = {
+  kind: string; // receipt or dashcam: the picture the app draws
+  lat: number;
+  lon: number;
+  shown: string; // the format the picture writes the coordinates in
+  ask: string; // the format the answer must be in
+  questions: string[];
+  names: string[]; // accepted names of the object, the first one shown to the teacher
+  converter: boolean;
+  seed: number; // the made-up details of the picture, the same for every student
+};
+
+/** The task list of the evidence game. */
+export function validateEvidence(raw: unknown): EvidenceTask[] {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_TASKS) throw new HttpError(400, 'bad_tasks');
+  return raw.map((t: Record<string, unknown>) => {
+    const { lat, lon, seed } = t ?? {};
+    if (typeof lat !== 'number' || typeof lon !== 'number' || !(Math.abs(lat) <= 90) || !(Math.abs(lon) <= 180)) {
+      throw new HttpError(400, 'bad_tasks');
+    }
+    if (!EVIDENCE_KINDS.includes(t.kind as string) || !FORMATS.includes(t.shown as string) || !FORMATS.includes(t.ask as string)) {
+      throw new HttpError(400, 'bad_tasks');
+    }
+    if (!Array.isArray(t.questions) || t.questions.some((q) => !QUESTIONS.includes(q))) throw new HttpError(400, 'bad_tasks');
+    const questions = QUESTIONS.filter((q) => (t.questions as unknown[]).includes(q));
+    if (questions.length === 0) throw new HttpError(400, 'bad_tasks');
+    const rawNames = Array.isArray(t.names) ? t.names : [];
+    if (rawNames.length > MAX_NAMES || rawNames.some((n) => typeof n !== 'string' || n.trim().length > 120)) {
+      throw new HttpError(400, 'bad_tasks');
+    }
+    const names = (rawNames as string[]).map((n) => n.trim()).filter((n) => normaliseName(n));
+    if (questions.includes('name') && names.length === 0) throw new HttpError(400, 'bad_tasks');
+    if (typeof seed !== 'number' || !Number.isInteger(seed) || seed < 0 || seed > 0x7fffffff) throw new HttpError(400, 'bad_tasks');
+    return { kind: t.kind as string, lat, lon, shown: t.shown as string, ask: t.ask as string, questions, names, converter: t.converter !== false, seed };
+  });
+}
+
+/** Strict, for coordinates read off a picture: 100 within 30 m, 0 from 5 km. */
+export function strictScoreFor(distance: number): number {
+  if (distance <= 30) return 100;
+  if (distance >= 5000) return 0;
+  return Math.round(100 * (1 - Math.log(distance / 30) / Math.log(5000 / 30)));
+}
+
+/** Case, spaces, punctuation and quotes don't matter. lib/evidence.dart does the same. */
+export function normaliseName(name: string): string {
+  return name.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+/** The distance and score of one answer. The point is where the typed coordinates or the tap fall. */
+export function scoreEvidence(task: EvidenceTask, answer: Record<string, unknown>, lat: number, lon: number): { distance: number | null; score: number } {
+  if (answer.q === 'name') {
+    const given = normaliseName(answer.name as string);
+    return { distance: null, score: task.names.some((n) => normaliseName(n) === given) ? 100 : 0 };
+  }
+  const distance = distanceM(lat, lon, task.lat, task.lon);
+  return { distance, score: answer.q === 'coords' ? strictScoreFor(distance) : scoreFor(distance) };
 }

@@ -77,11 +77,17 @@ class Api {
     return [for (final s in data['sessions'] as List) SessionInfo.fromJson(s as Map<String, dynamic>)];
   }
 
-  Future<(SessionInfo, String)> createSession(String name, String game, {List<CoordTask>? tasks, Map<String, dynamic>? cards}) async {
+  Future<(SessionInfo, String)> createSession(
+    String name,
+    String game, {
+    List<CoordTask>? tasks,
+    List<Map<String, dynamic>>? evidence,
+    Map<String, dynamic>? cards,
+  }) async {
     final data = await _send('POST', 'sessions', {
       'name': name,
       'game': game,
-      if (tasks != null) 'tasks': [for (final t in tasks) t.toJson()],
+      'tasks': ?(evidence ?? tasks?.map((t) => t.toJson()).toList()),
       'cards': ?cards,
     });
     return (SessionInfo.fromJson(data['session'] as Map<String, dynamic>), data['token'] as String);
@@ -105,6 +111,8 @@ class Api {
   }
 
   Future<void> setHidden(String responseId, bool hidden) => _send('PATCH', 'responses/$responseId', {'hidden': hidden});
+  Future<void> setAccepted(String responseId, bool accepted) =>
+      _send('PATCH', 'responses/$responseId', {'accepted': accepted});
   Future<void> deleteResponse(String responseId) => _send('DELETE', 'responses/$responseId');
 
   Future<Map<String, dynamic>> backup({String? sessionId}) =>

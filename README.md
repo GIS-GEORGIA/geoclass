@@ -4,7 +4,7 @@ Classroom geography games. The teacher shows a QR code, students answer anonymou
 
 საკლასო გეოგრაფიული თამაშები. მასწავლებელი აჩვენებს QR კოდს, მოსწავლეები ტელეფონიდან ანონიმურად პასუხობენ, პასუხები კი პირდაპირ რუკაზე ჩნდება.
 
-**Status:** The travel, coordinates, aerial photo, mapping and cards games work from QR code to live map. Live at https://geoclass.qgis.ge. The Android build is ready to publish, see [docs/play-store.md](docs/play-store.md).
+**Status:** The travel, coordinates, aerial photo, coordinate detective, mapping and cards games work from QR code to live map. Live at https://geoclass.qgis.ge. The Android build is ready to publish, see [docs/play-store.md](docs/play-store.md).
 
 | Stage | Contents | Status |
 |---|---|---|
@@ -54,6 +54,18 @@ Photos come only from this repository, with no outside imagery service:
 3. Run `flutter test`, which names any mistake in the list, then build and deploy as usual.
 
 Students' phones receive the photo names and coordinates so the app can score offline. A student who reads the page's network traffic could find them, and this is a classroom game, so that is accepted. Neutral file names like `p01.jpg` and photos without GPS data in the file avoid giving the answer away more easily.
+
+## The coordinate detective
+
+Each task is a picture the app draws: an educational fine receipt, plainly marked as a training sample, or a dashcam frame. It shows coordinates the teacher gives, in the format the teacher picks (DD, DM, DMS or UTM). Every other detail on it (number, date, speed, offence) is made up from a seed, the same for every student. There is no emblem, office, person, car or plate on either picture.
+
+For each task the teacher also picks the format of the answer, which can differ from the one shown, and which questions to ask, all three by default:
+
+- a) write the coordinates in the answer format (UTM as zone, X and Y). 100 points within 30 m, falling to 0 at 5 km.
+- b) mark the place on the map, scored as in the coordinates game.
+- c) name what is there. The teacher lists the accepted names; case, spaces and punctuation don't count.
+
+Students can open a coordinate converter (DD, DM or DMS to every format, and UTM 37N/38N back to DD), unless the teacher turns it off for the task. Results show after each task. On the review screen the teacher can mark any answer "count as right" for a small slip, and undo it; the leaderboard counts it as 100 and the original score is kept.
 
 ## The cards game
 

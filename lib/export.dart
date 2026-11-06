@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'cards.dart';
 import 'coords.dart';
+import 'evidence.dart';
 import 'mapping.dart';
 import 'models.dart';
 import 'nicknames.dart';
@@ -226,3 +227,65 @@ String cardsToCsv(List<CardTry> tries, int pairs, String lang) {
   }
   return out.toString();
 }
+
+/// One row per answer. "points" is what counts: 100 when the teacher accepted it.
+String evidenceToCsv(List<EvidenceAnswer> answers, List<EvidenceTask> tasks, String lang) {
+  final out = StringBuffer(
+    '\uFEFFnickname,task,question,kind,shown,asked,typed,lat,lon,distance_m,score,accepted,points,target_lat,target_lon,created_at\r\n',
+  );
+  for (final a in answers) {
+    if (a.task >= tasks.length) continue;
+    final t = tasks[a.task];
+    final placed = a.question != 'name';
+    out.write([
+      _csvText(nickname(a.participantId, lang)),
+      a.task + 1,
+      a.question,
+      t.kind,
+      t.shown,
+      t.ask,
+      _csvText(a.question == 'name' ? a.name : a.raw),
+      placed ? a.lat : '',
+      placed ? a.lon : '',
+      a.distanceM?.round() ?? '',
+      a.score,
+      a.accepted,
+      a.points,
+      t.lat,
+      t.lon,
+      _iso(a.createdAt),
+    ].join(','));
+    out.write('\r\n');
+  }
+  return out.toString();
+}
+
+/// The typed coordinates and the map taps as points; names have no place.
+String evidenceToGeoJson(List<EvidenceAnswer> answers, List<EvidenceTask> tasks, String lang) =>
+    const JsonEncoder.withIndent('  ').convert({
+      'type': 'FeatureCollection',
+      'features': [
+        for (final a in answers)
+          if (a.question != 'name' && a.task < tasks.length)
+            {
+              'type': 'Feature',
+              'geometry': {
+                'type': 'Point',
+                'coordinates': [a.lon, a.lat],
+              },
+              'properties': {
+                'nickname': nickname(a.participantId, lang),
+                'task': a.task + 1,
+                'question': a.question,
+                'typed': a.raw,
+                'distance_m': a.distanceM?.round(),
+                'score': a.score,
+                'accepted': a.accepted,
+                'points': a.points,
+                'target_lat': tasks[a.task].lat,
+                'target_lon': tasks[a.task].lon,
+                'created_at': _iso(a.createdAt),
+              },
+            },
+      ],
+    });

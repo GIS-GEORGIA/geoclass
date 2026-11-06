@@ -9,6 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'cards_play.dart';
 import 'coordinates_play.dart';
+import 'evidence.dart';
+import 'evidence_play.dart';
 import 'geo_map.dart';
 import 'l10n.dart';
 import 'mapping_play.dart';
@@ -103,7 +105,7 @@ class _StudentPageState extends State<StudentPage> {
       _status = data['status'] as String;
       _game = data['game'] as String? ?? 'travel';
       final settings = data['settings'] as Map<String, dynamic>? ?? const {};
-      _tasks = CoordTask.listFrom(settings);
+      _tasks = _game == 'coordinates' || _game == 'aerial' ? CoordTask.listFrom(settings) : const [];
       _resetAt = settings['resetAt'] as int? ?? 0;
       _settings = settings;
       _now = data['now'] as int? ?? deviceSeconds();
@@ -236,6 +238,15 @@ class _StudentPageState extends State<StudentPage> {
             token: widget.token,
             settings: _settings,
             now: _now,
+            api: _api,
+            onStopped: (status) => setState(() => _status = status),
+          ),
+        _Stage.form when _game == 'evidence' => EvidencePlay(
+            s: s,
+            lang: widget.settings.lang,
+            token: widget.token,
+            tasks: EvidenceTask.listFrom(_settings),
+            resetAt: _resetAt,
             api: _api,
             onStopped: (status) => setState(() => _status = status),
           ),

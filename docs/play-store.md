@@ -28,6 +28,7 @@ Upload `build/app/outputs/bundle/release/app-release.aab`. Raise the number afte
 > • სად გსურს მოგზაურობა? — მოსწავლეების არჩეული ადგილები ერთ რუკაზე.
 > • კოორდინატების თამაში — გეოგრაფიული (DD, DM, DMS) და მართკუთხა (UTM) კოორდინატები, ქულა და რეიტინგი.
 > • გამოიცანი საჰაერო ფოტოდან — იპოვე ფოტოზე ნაჩვენები ადგილი რუკაზე.
+> • კოორდინატების დეტექტივი — ამოიკითხე კოორდინატები სასწავლო ჯარიმის ქვითრიდან ან ვიდეორეგისტრატორის კადრიდან, გადაიყვანე სხვა ფორმატში, იპოვე რუკაზე და დაასახელე ობიექტი.
 > • დახატე შენი უბანი — წერტილებით, ხაზებითა და პოლიგონებით დახატე რაც შეიძლება მეტი ობიექტი მასწავლებლის დათქმულ დროში.
 > • იპოვე ერთი და იგივე ადგილი — იპოვე რუკის ბარათების წყვილები, სხვადასხვა მასშტაბითა და მობრუნებული.
 >
@@ -41,6 +42,7 @@ Upload `build/app/outputs/bundle/release/app-release.aab`. Raise the number afte
 > • Where would you travel? — everyone's chosen places on one map.
 > • Coordinates game — geographic (DD, DM, DMS) and rectangular (UTM) coordinates, with scores and a leaderboard.
 > • Guess from aerial photos — find the place in the photo on the map.
+> • Coordinate detective — read the coordinates off a sample fine receipt or a dashcam frame, convert them, find the place on the map and name it.
 > • Map your neighbourhood — draw as many places as you can with points, lines and polygons, within the time the teacher sets.
 > • Find the same place — match pairs of map cards shown at different scales and turned.
 >
