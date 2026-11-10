@@ -17,6 +17,7 @@ import 'mapping_play.dart';
 import 'models.dart';
 import 'places.dart';
 import 'plates_play.dart';
+import 'privacy_info.dart';
 import 'queue.dart';
 import 'settings.dart';
 import 'settings_page.dart';
@@ -211,6 +212,7 @@ class _StudentPageState extends State<StudentPage> {
               onPressed: () => widget.settings.setLang(widget.settings.lang == 'ka' ? 'en' : 'ka'),
               child: Text(widget.settings.lang == 'ka' ? 'EN' : 'KA'),
             ),
+            PrivacyInfoButton(s: s),
             IconButton(
               tooltip: s['settings'],
               icon: const Icon(Icons.settings),

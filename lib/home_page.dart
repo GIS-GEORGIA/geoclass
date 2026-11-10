@@ -11,6 +11,7 @@ import 'evidence.dart';
 import 'evidence_setup_page.dart';
 import 'plates.dart';
 import 'plates_setup_page.dart';
+import 'privacy_info.dart';
 import 'api.dart';
 import 'coordinates_setup_page.dart';
 import 'l10n.dart';
@@ -131,6 +132,7 @@ class _KeyPageState extends State<_KeyPage> {
         appBar: AppBar(
           title: Text(s['app_title']),
           actions: [
+            PrivacyInfoButton(s: s),
             IconButton(
               tooltip: s['settings'],
               icon: const Icon(Icons.settings),
@@ -364,6 +366,7 @@ class _SessionListState extends State<_SessionList> {
             selectedIcon: const Icon(Icons.inventory_2),
             onPressed: () => setState(() => _showArchived = !_showArchived),
           ),
+          PrivacyInfoButton(s: s),
           IconButton(
             tooltip: s['settings'],
             icon: const Icon(Icons.settings),
