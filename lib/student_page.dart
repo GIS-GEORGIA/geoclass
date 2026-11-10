@@ -16,6 +16,7 @@ import 'l10n.dart';
 import 'mapping_play.dart';
 import 'models.dart';
 import 'places.dart';
+import 'plates_play.dart';
 import 'queue.dart';
 import 'settings.dart';
 import 'settings_page.dart';
@@ -247,6 +248,14 @@ class _StudentPageState extends State<StudentPage> {
             token: widget.token,
             tasks: EvidenceTask.listFrom(_settings),
             resetAt: _resetAt,
+            api: _api,
+            onStopped: (status) => setState(() => _status = status),
+          ),
+        _Stage.form when _game == 'plates' => PlatesPlay(
+            s: s,
+            lang: widget.settings.lang,
+            token: widget.token,
+            settings: _settings,
             api: _api,
             onStopped: (status) => setState(() => _status = status),
           ),

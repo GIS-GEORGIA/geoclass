@@ -88,6 +88,34 @@ export function validateAnswer(game: string, raw: unknown): Record<string, unkno
   throw new HttpError(400, 'bad_game');
 }
 
+export const MAX_PLATES = 40;
+export const PLATE_PALETTES = ['red_green', 'pink_violet', 'blue_violet'];
+const SHAPE_RE = /^[a-z][a-z0-9_]{0,39}$/;
+
+export type Plate = { shape: string; palette: string; seed: number };
+/** The plates game: the deck, which plate everyone sees and whether its answer shows. */
+export type PlatesSettings = { deck: Plate[]; at: number; revealed: boolean };
+
+/** The deck the teacher chose. The app draws each plate from its outline, palette and seed. */
+export function validatePlates(raw: unknown): PlatesSettings {
+  const c = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+  if (!Array.isArray(c.deck) || c.deck.length < 1 || c.deck.length > MAX_PLATES) throw new HttpError(400, 'bad_plates');
+  const deck = c.deck.map((p: Record<string, unknown>) => {
+    if (
+      typeof p?.shape !== 'string' ||
+      !SHAPE_RE.test(p.shape) ||
+      typeof p.seed !== 'number' ||
+      !Number.isInteger(p.seed) ||
+      p.seed < 0 ||
+      p.seed > 0x7fffffff
+    ) {
+      throw new HttpError(400, 'bad_plates');
+    }
+    return { shape: p.shape, palette: oneOf(p.palette, PLATE_PALETTES), seed: p.seed };
+  });
+  return { deck, at: 0, revealed: false };
+}
+
 export type CardPair = { a: string; b: string; label: string; labelEn: string; ra: number; rb: number };
 export type CardsSettings = { pairs: CardPair[]; arrow: boolean; rotation: string };
 

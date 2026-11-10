@@ -801,3 +801,71 @@ describe('paths outside the API', () => {
     expect((await call('GET', '../aerial/missing.jpg', undefined, {})).status).toBe(404);
   });
 });
+
+describe('plates game', () => {
+  const deck = [
+    { shape: 'georgia', palette: 'red_green', seed: 1 },
+    { shape: 'ge_m_gori', palette: 'pink_violet', seed: 2 },
+    { shape: 'italy', palette: 'blue_violet', seed: 3 },
+  ];
+
+  async function game() {
+    const res = await call('POST', 'sessions', { name: 'Plates', game: 'plates', plates: { deck } });
+    expect(res.status).toBe(201);
+    return (await res.json()) as { session: { id: string; settings: { at: number } }; token: string };
+  }
+
+  type Joined = { settings: { plate: { shape: string } | null; at: number; count: number; revealed: boolean; deck?: unknown } };
+  const join = async (token: string) => (await (await student('join', { token })).json()) as Joined;
+  const show = (sessionId: string, at: unknown, revealed: unknown) => call('POST', `sessions/${sessionId}/plate`, { at, revealed });
+
+  it('checks the deck', async () => {
+    for (const plates of [{ deck: [] }, { deck: [{ shape: 'Bad Name', palette: 'red_green', seed: 1 }] }, { deck: [{ shape: 'x', palette: 'gold', seed: 1 }] }, {}]) {
+      expect((await call('POST', 'sessions', { name: 'P', game: 'plates', plates })).status).toBe(400);
+    }
+  });
+
+  it('shows students only the plate on screen, and follows the teacher', async () => {
+    const { session, token } = await game();
+    let seen = await join(token);
+    expect(seen.settings).toEqual({ plate: deck[0], at: 0, count: 3, revealed: false });
+    expect(seen.settings.deck).toBeUndefined();
+
+    expect((await show(session.id, 1, true)).status).toBe(200);
+    seen = await join(token);
+    expect(seen.settings).toEqual({ plate: deck[1], at: 1, count: 3, revealed: true });
+
+    // Past the last plate: the end, never revealed.
+    expect((await show(session.id, 3, true)).status).toBe(200);
+    seen = await join(token);
+    expect(seen.settings).toEqual({ plate: null, at: 3, count: 3, revealed: false });
+
+    for (const [at, revealed] of [[4, false], [-1, false], [1.5, false], [1, 'yes']]) {
+      expect((await show(session.id, at, revealed)).status).toBe(400);
+    }
+    expect((await call('POST', `sessions/${session.id}/plate`, { at: 0, revealed: false }, {})).status).toBe(401);
+  });
+
+  it('takes no answers', async () => {
+    const { token } = await game();
+    const res = await student('submit', { token, submissionId: id('sub'), participantId: id('par'), answer: {}, lat: 0, lon: 0 });
+    expect(res.status).toBe(400);
+  });
+
+  it('moves plates only in this game', async () => {
+    const { session } = await newSession();
+    expect((await show(session.id, 0, false)).status).toBe(400);
+  });
+
+  it('keeps the deck through a backup and starts again', async () => {
+    const { session } = await game();
+    await show(session.id, 2, true);
+    const file = await (await call('GET', `backup?session=${session.id}`)).json();
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    const restored = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as {
+      session: { settings: { deck: unknown[]; at: number; revealed: boolean } };
+    };
+    expect(restored.session.settings).toEqual({ deck, at: 0, revealed: false });
+  });
+});

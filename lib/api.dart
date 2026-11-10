@@ -83,12 +83,14 @@ class Api {
     List<CoordTask>? tasks,
     List<Map<String, dynamic>>? evidence,
     Map<String, dynamic>? cards,
+    List<Map<String, dynamic>>? plates,
   }) async {
     final data = await _send('POST', 'sessions', {
       'name': name,
       'game': game,
       'tasks': ?(evidence ?? tasks?.map((t) => t.toJson()).toList()),
       'cards': ?cards,
+      'plates': ?(plates == null ? null : {'deck': plates}),
     });
     return (SessionInfo.fromJson(data['session'] as Map<String, dynamic>), data['token'] as String);
   }
@@ -101,6 +103,12 @@ class Api {
         'center': ?center,
         'zoom': ?zoom,
       });
+  /// The plates game: moves everyone to a plate (the deck's length is the end) and shows or hides its answer.
+  Future<SessionInfo> setPlate(String id, {required int at, required bool revealed}) async {
+    final data = await _send('POST', 'sessions/$id/plate', {'at': at, 'revealed': revealed});
+    return SessionInfo.fromJson(data['session'] as Map<String, dynamic>);
+  }
+
   Future<String> newToken(String id) async => (await _send('POST', 'sessions/$id/token'))['token'] as String;
 
   Future<Polled> poll(String id, int? rev) async {

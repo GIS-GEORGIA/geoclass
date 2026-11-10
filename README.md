@@ -92,17 +92,25 @@ The app turns the cards itself, so a place needs no rotated copies. Students' ph
 
 ## Colour plates
 
-A teacher-only screen for the projector, opened from the palette button on the home screen. Each plate is a circle of coloured dots with a continent or country hidden in it, in colours of about the same lightness, so the shape shows only by its hue, as on colour vision plates. The class says the answers aloud; students use no phones, and nothing is sent or stored.
+Each plate is a circle of coloured dots with a shape hidden in it, in colours of about the same lightness, so the shape shows only by its hue, as on colour vision plates. The teacher chooses what to hide (regions of Georgia, municipalities of Georgia, continents, countries of the world; one or more), how many plates and the colours, and the app picks the plates at random.
 
-It opens with a notice for the teacher to read aloud: taking part is voluntary, the class answers together and nobody is asked alone, "I can't see it" is a normal answer, it is not a medical test, and nothing is collected. "Show the answer" fades the background and darkens the shape, so everyone can see it. It ends with a short explanation of colour vision and why map colours matter. Arrow keys or Page Up/Down move between plates, Space or Enter shows the answer.
+It is a session like the others: students scan the QR code and see the plate the teacher shows on their own phone or tablet, while the teacher projects it from the laptop. The teacher moves the plates and shows the answer; the phones follow within a few seconds. Nobody sends an answer: the class says it aloud, together. Phones ask the server for the current plate every 3 seconds while the screen is on, and only ever get the plate on screen, not the ones to come.
 
-The plates are drawn by the app from outlines in `assets/plates.json`. To change the list, edit `tool/plate_shapes.json` and rebuild from Natural Earth's [`ne_50m_admin_0_countries.geojson`](https://github.com/nvkelso/natural-earth-vector/tree/master/geojson):
+It opens with a notice for the teacher to read aloud, which students also see: taking part is voluntary, the class answers together and nobody is asked alone, "I can't see it" is a normal answer, it is not a medical test, and nothing is collected. "Show the answer" fades the background and darkens the shape, so everyone can see it. It ends with a short explanation of colour vision and why map colours matter. On the teacher's screen the arrow keys or Page Up/Down move between plates, and Space or Enter shows the answer.
+
+The plates are drawn by the app from outlines in `assets/plates.json`. To change the list, edit `tool/plate_shapes.json` and rebuild. Countries and continents come from Natural Earth's [`ne_50m_admin_0_countries.geojson`](https://github.com/nvkelso/natural-earth-vector/tree/master/geojson), Georgia's regions and municipalities from OpenStreetMap, downloaded once through the Overpass API:
 
 ```bash
-node tool/build_plates.mjs ne_50m_admin_0_countries.geojson
+node tool/fetch_osm.mjs osm_boundaries.geojson
 ```
 
-An entry takes `countries` (ADM0_A3 codes, joined into one shape), `continent`, or `file`: a GeoJSON of your own in WGS84, for example a municipality exported from QGIS, with the path relative to `tool/`. Simple, recognisable outlines work best; small islands are left out.
+```bash
+node tool/build_plates.mjs ne_50m_admin_0_countries.geojson osm_boundaries.geojson
+```
+
+An entry takes `countries` (ADM0_A3 codes, joined into one shape), `continent`, `osm` (a relation id) or `file`: a GeoJSON of your own in WGS84, for example a municipality exported from QGIS, with the path relative to `tool/`. `largestOnly` keeps only the biggest piece (Akhmeta's winter pastures in Shiraki, for instance, would shrink the rest). Small islands are left out.
+
+The municipalities are the ones Georgia governs today. In the occupied territories OpenStreetMap has the de facto districts rather than Georgia's municipalities, so they are left out; Abkhazia is among the regions.
 
 ## How it fits together
 
@@ -185,7 +193,7 @@ node tool/build_places.mjs cities15000.txt GE.txt
 ## Data and credits
 
 - Map data © OpenStreetMap contributors (ODbL), [OpenTopoMap](https://opentopomap.org/about) (CC BY-SA). Base map addresses are in `lib/geo_map.dart`.
-- Outlines in the colour plates: Natural Earth (public domain).
+- Outlines in the colour plates: Natural Earth (public domain); regions and municipalities of Georgia © OpenStreetMap contributors (ODbL).
 - Places: GeoNames (CC BY 4.0). Country names: Unicode CLDR.
 - Font: Noto Sans Georgian (SIL OFL).
 - Font: Roboto, reduced to Latin, Greek, Cyrillic and punctuation (Apache 2.0, `assets/fonts/Roboto_LICENSE.txt`).

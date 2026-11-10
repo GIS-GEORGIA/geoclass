@@ -31,7 +31,7 @@ Upload `build/app/outputs/bundle/release/app-release.aab`. Raise the number afte
 > • კოორდინატების დეტექტივი — ამოიკითხე კოორდინატები სასწავლო ჯარიმის ქვითრიდან ან ვიდეორეგისტრატორის კადრიდან, გადაიყვანე სხვა ფორმატში, იპოვე რუკაზე და დაასახელე ობიექტი.
 > • დახატე შენი უბანი — წერტილებით, ხაზებითა და პოლიგონებით დახატე რაც შეიძლება მეტი ობიექტი მასწავლებლის დათქმულ დროში.
 > • იპოვე ერთი და იგივე ადგილი — იპოვე რუკის ბარათების წყვილები, სხვადასხვა მასშტაბითა და მობრუნებული.
-> • ფერადი ფირფიტები — ნებაყოფლობითი თამაში პროექტორზე: ფერადი წერტილებიდან ამოიცანი კონტინენტი ან ქვეყანა და ისაუბრე ფერთა აღქმაზე. არაფერი იგზავნება და არაფერი ინახება.
+> • ფერების წრეები — ნებაყოფლობითი თამაში: ფერადი წერტილებიდან ამოიცანი საქართველოს რეგიონი, მუნიციპალიტეტი, კონტინენტი ან ქვეყანა. წრეს მასწავლებელი ცვლის, მოსწავლეები მას ტელეფონზეც ხედავენ და პასუხს ერთად, ხმამაღლა ამბობენ. პასუხი არ იგზავნება.
 >
 > მოსწავლეს არ სჭირდება ანგარიში, სახელი ან ელფოსტა. აპს აქვს ქართული და ინგლისური ენა, ღია და მუქი თემა. კოდი ღიაა: github.com/GIS-GEORGIA/geoclass
 
@@ -46,7 +46,7 @@ Upload `build/app/outputs/bundle/release/app-release.aab`. Raise the number afte
 > • Coordinate detective — read the coordinates off a sample fine receipt or a dashcam frame, convert them, find the place on the map and name it.
 > • Map your neighbourhood — draw as many places as you can with points, lines and polygons, within the time the teacher sets.
 > • Find the same place — match pairs of map cards shown at different scales and turned.
-> • Colour plates — a voluntary game on the projector: spot a continent or country in coloured dots, then talk about colour vision. Nothing is sent or stored.
+> • Colour plates — a voluntary game: spot a region or municipality of Georgia, a continent or a country in coloured dots. The teacher moves the plates, students see them on their phones too and say the answer aloud together. No answer is sent.
 >
 > Students need no account, name or email. Georgian and English, light and dark themes. Open source: github.com/GIS-GEORGIA/geoclass
 

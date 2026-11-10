@@ -9,7 +9,8 @@ import 'cards.dart';
 import 'cards_setup_page.dart';
 import 'evidence.dart';
 import 'evidence_setup_page.dart';
-import 'plates_page.dart';
+import 'plates.dart';
+import 'plates_setup_page.dart';
 import 'api.dart';
 import 'coordinates_setup_page.dart';
 import 'l10n.dart';
@@ -256,7 +257,7 @@ class _SessionListState extends State<_SessionList> {
                 onChanged: (v) => setDialog(() => game = v!),
                 child: Column(
                   children: [
-                    for (final g in const ['travel', 'coordinates', 'aerial', 'evidence', 'mapping', 'cards'])
+                    for (final g in const ['travel', 'coordinates', 'aerial', 'evidence', 'mapping', 'cards', 'plates'])
                       RadioListTile<String>(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
@@ -296,7 +297,13 @@ class _SessionListState extends State<_SessionList> {
     List<CoordTask>? tasks;
     Deck? deck;
     List<EvidenceTask>? evidence;
-    if (game == 'evidence') {
+    List<PlateSpec>? plates;
+    if (game == 'plates') {
+      plates = await Navigator.of(context).push<List<PlateSpec>>(MaterialPageRoute(
+        builder: (_) => PlatesSetupPage(s: s),
+      ));
+      if (plates == null) return;
+    } else if (game == 'evidence') {
       evidence = await Navigator.of(context).push<List<EvidenceTask>>(MaterialPageRoute(
         builder: (_) => EvidenceSetupPage(s: s),
       ));
@@ -324,6 +331,7 @@ class _SessionListState extends State<_SessionList> {
         tasks: tasks,
         evidence: evidence?.map((t) => t.toJson()).toList(),
         cards: deck?.toJson(),
+        plates: plates?.map((p) => p.toJson()).toList(),
       );
       await widget.settings.setToken(session.id, token);
       await _open(session, showQr: true);
@@ -344,14 +352,6 @@ class _SessionListState extends State<_SessionList> {
       appBar: AppBar(
         title: Text(s['sessions']),
         actions: [
-          // Played on the class screen only: no session, nothing sent.
-          IconButton(
-            tooltip: s['plates_title'],
-            icon: const Icon(Icons.palette_outlined),
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => PlatesPage(s: s, lang: widget.settings.lang),
-            )),
-          ),
           IconButton(
             tooltip: s['site_qr_title'],
             icon: const Icon(Icons.qr_code),
@@ -423,6 +423,7 @@ class _SessionListState extends State<_SessionList> {
                                   'mapping' => Icons.draw,
                                   'cards' => Icons.style,
                                   'evidence' => Icons.receipt_long,
+                                  'plates' => Icons.palette_outlined,
                                   _ => Icons.travel_explore,
                                 }),
                                 title: Text(x.name),

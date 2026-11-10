@@ -11,6 +11,7 @@ import 'geo_map.dart';
 import 'mapping_session_page.dart';
 import 'models.dart';
 import 'places.dart';
+import 'plates_session_page.dart';
 import 'session_base.dart';
 import 'settings.dart';
 
@@ -19,6 +20,7 @@ Widget sessionPageFor(Settings settings, SessionInfo session, {bool showQr = fal
       'travel' => TravelSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
       'cards' => CardsSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
       'evidence' => EvidenceSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
+      'plates' => PlatesSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
       'mapping' => MappingSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
       _ => CoordinatesSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
     };

@@ -12,16 +12,11 @@ class PlateShape {
 
   String label(String lang) => lang == 'en' ? en : ka;
 
-  factory PlateShape.fromJson(Map<String, dynamic> j) => PlateShape(
-    j['id'] as String,
-    j['ka'] as String,
-    j['en'] as String,
-    j['group'] as String,
-    [
-      for (final p in j['polys'] as List)
-        [for (final xy in p as List) Offset(((xy as List)[0] as num).toDouble(), (xy[1] as num).toDouble())],
-    ],
-  );
+  factory PlateShape.fromJson(Map<String, dynamic> j) =>
+      PlateShape(j['id'] as String, j['ka'] as String, j['en'] as String, j['group'] as String, [
+        for (final p in j['polys'] as List)
+          [for (final xy in p as List) Offset(((xy as List)[0] as num).toDouble(), (xy[1] as num).toDouble())],
+      ]);
 
   /// Even-odd test over every part: countries that touch are filled as one.
   bool contains(Offset point) {
@@ -29,7 +24,8 @@ class PlateShape {
     for (final ring in polys) {
       for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
         final a = ring[i], b = ring[j];
-        if ((a.dy > point.dy) != (b.dy > point.dy) && point.dx < (b.dx - a.dx) * (point.dy - a.dy) / (b.dy - a.dy) + a.dx) {
+        if ((a.dy > point.dy) != (b.dy > point.dy) &&
+            point.dx < (b.dx - a.dx) * (point.dy - a.dy) / (b.dy - a.dy) + a.dx) {
           inside = !inside;
         }
       }
@@ -151,4 +147,171 @@ class PlatePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(PlatePainter old) => old.dots != dots || old.revealed != revealed;
+}
+
+/// What can be hidden in the plates, in the order the teacher sees it.
+const plateGroups = ['ge_region', 'ge_municipality', 'continent', 'country'];
+const plateCounts = [6, 9, 12, 20];
+
+/// One plate of a session: everyone's device draws the same plate from these three.
+class PlateSpec {
+  final String shape, palette;
+  final int seed;
+  const PlateSpec(this.shape, this.palette, this.seed);
+
+  factory PlateSpec.fromJson(Map<String, dynamic> j) =>
+      PlateSpec(j['shape'] as String, j['palette'] as String, (j['seed'] as num).toInt());
+  Map<String, dynamic> toJson() => {'shape': shape, 'palette': palette, 'seed': seed};
+
+  static List<PlateSpec> listFrom(Map<String, dynamic> settings) => [
+    for (final p in settings['deck'] as List? ?? const []) PlateSpec.fromJson(p as Map<String, dynamic>),
+  ];
+
+  @override
+  bool operator ==(Object other) =>
+      other is PlateSpec && other.shape == shape && other.palette == palette && other.seed == seed;
+  @override
+  int get hashCode => Object.hash(shape, palette, seed);
+
+  PlatePalette get colours => platePalettes.firstWhere((p) => p.id == palette, orElse: () => platePalettes.first);
+}
+
+/// Picks the plates at random from the chosen groups. With 'mix' the palettes take turns.
+List<PlateSpec> makeDeck(List<PlateShape> shapes, Set<String> groups, int count, String palette, Random r) {
+  final pool = shapes.where((x) => groups.contains(x.group)).toList()..shuffle(r);
+  return [
+    for (final (i, shape) in pool.take(count).indexed)
+      PlateSpec(shape.id, palette == 'mix' ? platePalettes[i % platePalettes.length].id : palette, r.nextInt(1 << 31)),
+  ];
+}
+
+/// Plates already drawn, so going back and forth doesn't draw them again.
+class PlateCache {
+  final _drawn = <PlateSpec, List<PlateDot>>{};
+  List<PlateDot>? dots(PlateSpec spec, List<PlateShape> shapes) {
+    final shape = shapes.where((x) => x.id == spec.shape).firstOrNull;
+    if (shape == null) return null; // made by a newer version of the app
+    return _drawn[spec] ??= makePlate(shape, spec.colours, spec.seed);
+  }
+}
+
+/// The plate, and under it the question or, once shown, the answer.
+class PlateView extends StatelessWidget {
+  final List<PlateDot>? dots;
+  final bool revealed;
+  final String question, answer;
+  final VoidCallback? onTap;
+  const PlateView({
+    super.key,
+    required this.dots,
+    required this.revealed,
+    required this.question,
+    required this.answer,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Column(
+      children: [
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: GestureDetector(
+              onTap: onTap,
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: dots == null
+                    ? const Center(child: Icon(Icons.help_outline, size: 64))
+                    : CustomPaint(painter: PlatePainter(dots!, revealed: revealed)),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 44,
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: revealed
+                  ? Text(answer, style: text.headlineSmall?.copyWith(fontWeight: FontWeight.w700))
+                  : Text(question, style: text.titleMedium),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+Widget _platesList(List<Widget> children) => Center(
+  child: ConstrainedBox(
+    constraints: const BoxConstraints(maxWidth: 720),
+    child: ListView(padding: const EdgeInsets.all(20), children: children),
+  ),
+);
+
+/// What the class hears before the first plate. [note] says who sees what; [actions] go under it.
+Widget platesNotice(
+  BuildContext context,
+  String Function(String) s, {
+  required String note,
+  required List<Widget> actions,
+}) {
+  final text = Theme.of(context).textTheme;
+  return _platesList([
+    Icon(Icons.campaign_outlined, size: 48, color: Theme.of(context).colorScheme.primary),
+    const SizedBox(height: 8),
+    Text(s('plates_notice_title'), textAlign: TextAlign.center, style: text.headlineSmall),
+    const SizedBox(height: 16),
+    Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final k in const ['plates_notice_1', 'plates_notice_2', 'plates_notice_3', 'plates_notice_4'])
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 2, right: 8),
+                      child: Icon(Icons.check_circle_outline, size: 20),
+                    ),
+                    Expanded(child: Text(s(k), style: text.titleMedium)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+    const SizedBox(height: 8),
+    Text(note, style: text.bodySmall),
+    const SizedBox(height: 16),
+    ...actions,
+  ]);
+}
+
+/// After the last plate: why people see the plates differently, and why it matters for maps.
+Widget platesEnd(BuildContext context, String Function(String) s, {List<Widget> actions = const []}) {
+  final text = Theme.of(context).textTheme;
+  return _platesList([
+    Icon(Icons.palette_outlined, size: 48, color: Theme.of(context).colorScheme.primary),
+    const SizedBox(height: 8),
+    Text(s('plates_end_title'), textAlign: TextAlign.center, style: text.headlineSmall),
+    const SizedBox(height: 16),
+    for (final k in const ['plates_end_1', 'plates_end_2', 'plates_end_3'])
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(s(k), style: text.titleMedium),
+        ),
+      ),
+    const SizedBox(height: 16),
+    ...actions,
+  ]);
 }

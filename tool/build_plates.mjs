@@ -1,22 +1,24 @@
 // Builds assets/plates.json, the outlines hidden in the colour plates.
 //
-//   node tool/build_plates.mjs ne_50m_admin_0_countries.geojson
+//   node tool/build_plates.mjs ne_50m_admin_0_countries.geojson osm_boundaries.geojson
 //
 // The countries file is Natural Earth's (public domain), from
 // https://github.com/nvkelso/natural-earth-vector/tree/master/geojson
 // Each entry of tool/plate_shapes.json takes its outline from Natural Earth countries
-// ("countries": ADM0_A3 codes, or "continent": a CONTINENT value), or from a GeoJSON file
+// ("countries": ADM0_A3 codes, or "continent": a CONTINENT value), from OpenStreetMap
+// ("osm": a relation id, downloaded first by tool/fetch_osm.mjs), or from a GeoJSON file
 // of your own ("file", WGS84, e.g. a municipality exported from QGIS).
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 const here = dirname(new URL(import.meta.url).pathname);
-const countriesFile = process.argv[2];
+const [countriesFile, osmFile] = process.argv.slice(2);
 if (!countriesFile) {
-  console.error('usage: node tool/build_plates.mjs ne_50m_admin_0_countries.geojson');
+  console.error('usage: node tool/build_plates.mjs ne_50m_admin_0_countries.geojson [osm_boundaries.geojson]');
   process.exit(1);
 }
 const countries = JSON.parse(readFileSync(countriesFile, 'utf8')).features;
+const osm = osmFile ? JSON.parse(readFileSync(osmFile, 'utf8')).features : [];
 const shapes = JSON.parse(readFileSync(resolve(here, 'plate_shapes.json'), 'utf8'));
 
 // Islands and pieces smaller than this share of the biggest piece are left out: as dots they are noise.
@@ -76,6 +78,11 @@ function simplify(points, tolerance) {
 
 function source(shape) {
   if (shape.file) return JSON.parse(readFileSync(resolve(here, shape.file), 'utf8')).features;
+  if (shape.osm) {
+    const picked = osm.filter((f) => f.properties.osm === shape.osm);
+    if (picked.length === 0) throw new Error(`${shape.id}: relation ${shape.osm} not in the OSM file (run tool/fetch_osm.mjs)`);
+    return picked;
+  }
   const picked = countries.filter((f) =>
     shape.countries ? shape.countries.includes(f.properties.ADM0_A3) : f.properties.CONTINENT === shape.continent,
   );
@@ -104,6 +111,7 @@ for (const shape of shapes) {
     .map((r) => simplifyRing(r.map(([x, y]) => [(x - cx) * scale, -(y - cy) * scale]), TOLERANCE))
     .filter((r) => r.length >= 4)
     .map((r) => r.map(([x, y]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000]));
+  if (polys.length === 0) throw new Error(`${shape.id}: no outline left`);
   out.push({ id: shape.id, ka: shape.ka, en: shape.en, group: shape.group, polys });
   console.log(shape.id.padEnd(16), `${polys.length} parts`, `${polys.reduce((n, p) => n + p.length, 0)} points`);
 }

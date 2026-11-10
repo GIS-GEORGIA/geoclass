@@ -8,7 +8,9 @@ import {
   validateAnswer,
   validateCards,
   validateEvidence,
+  validatePlates,
   validateTasks,
+  type PlatesSettings,
   type EvidenceTask,
   type Task,
 } from './validate';
@@ -83,7 +85,7 @@ type SessionRow = {
 };
 
 const SESSION_COLUMNS = 'id, name, game, status, rev, archived, settings, created_at';
-const GAMES = ['travel', 'coordinates', 'aerial', 'mapping', 'cards', 'evidence'];
+const GAMES = ['travel', 'coordinates', 'aerial', 'mapping', 'cards', 'evidence', 'plates'];
 // Games played against the teacher's clock.
 const TIMED_GAMES = ['mapping', 'cards'];
 // Games made of tasks that the server scores.
@@ -165,7 +167,19 @@ const bumpRev = (env: Env, id: string) => env.DB.prepare('UPDATE sessions SET re
 async function join(env: Env, request: Request): Promise<Response> {
   const { token } = await readBody<{ token?: unknown }>(request);
   const s = await sessionByToken(env, token);
-  return json({ name: s.name, game: s.game, status: s.status, settings: JSON.parse(s.settings), now: nowSec() });
+  const settings = JSON.parse(s.settings);
+  return json({
+    name: s.name,
+    game: s.game,
+    status: s.status,
+    settings: s.game === 'plates' ? studentPlates(settings) : settings,
+    now: nowSec(),
+  });
+}
+
+/** Students get only the plate on the screen now, not the ones still to come. Past the last one it's null. */
+function studentPlates(p: PlatesSettings) {
+  return { plate: p.deck[p.at] ?? null, at: p.at, count: p.deck.length, revealed: p.revealed };
 }
 
 async function submit(env: Env, request: Request): Promise<Response> {
@@ -375,7 +389,7 @@ async function listSessions(env: Env): Promise<Response> {
 }
 
 async function createSession(env: Env, request: Request): Promise<Response> {
-  const body = await readBody<{ name?: unknown; game?: unknown; tasks?: unknown; cards?: unknown }>(request);
+  const body = await readBody<{ name?: unknown; game?: unknown; tasks?: unknown; cards?: unknown; plates?: unknown }>(request);
   const name = cleanName(body.name);
   if (typeof body.game !== 'string' || !GAMES.includes(body.game)) throw new HttpError(400, 'bad_game');
   const settings = TASK_GAMES.includes(body.game)
@@ -384,7 +398,9 @@ async function createSession(env: Env, request: Request): Promise<Response> {
       ? validateCards(body.cards)
       : body.game === 'evidence'
         ? { tasks: validateEvidence(body.tasks) }
-        : {};
+        : body.game === 'plates'
+          ? validatePlates(body.plates)
+          : {};
   const id = crypto.randomUUID();
   const token = randomToken();
   await env.DB.prepare('INSERT INTO sessions (id, name, game, token_hash, settings, created_at) VALUES (?, ?, ?, ?, ?, ?)')
@@ -434,6 +450,24 @@ async function setTimer(env: Env, request: Request, id: string): Promise<Respons
     settings.center = [lat, lon];
     settings.zoom = typeof zoom === 'number' && zoom >= 2 && zoom <= 20 ? zoom : 13;
   }
+  await env.DB.batch([
+    env.DB.prepare('UPDATE sessions SET settings = ? WHERE id = ?').bind(JSON.stringify(settings), id),
+    bumpRev(env, id),
+  ]);
+  return json({ session: sessionJson(await sessionOr404(env, id)) });
+}
+
+/** The plates game: the teacher moves everyone to a plate (the deck's length is the end) and shows or hides its answer. */
+async function setPlate(env: Env, request: Request, id: string): Promise<Response> {
+  const s = await sessionOr404(env, id);
+  if (s.game !== 'plates') throw new HttpError(400, 'bad_game');
+  const { at, revealed } = await readBody<{ at?: unknown; revealed?: unknown }>(request);
+  const settings = JSON.parse(s.settings) as PlatesSettings;
+  if (typeof at !== 'number' || !Number.isInteger(at) || at < 0 || at > settings.deck.length || typeof revealed !== 'boolean') {
+    throw new HttpError(400, 'bad_plate');
+  }
+  settings.at = at;
+  settings.revealed = revealed && at < settings.deck.length;
   await env.DB.batch([
     env.DB.prepare('UPDATE sessions SET settings = ? WHERE id = ?').bind(JSON.stringify(settings), id),
     bumpRev(env, id),
@@ -544,12 +578,12 @@ function restoredTasks(game: string, raw: unknown): (Task | EvidenceTask)[] {
   }
 }
 
-/** The settings a restored session keeps: the task list or the deck. The clock is not restored. */
+/** The settings a restored session keeps: the task list or the deck. The clock is not restored, and plates start again. */
 function restoredSettings(game: string, tasks: (Task | EvidenceTask)[], raw: BackupSession['settings']): object {
   if (TASK_GAMES.includes(game) || game === 'evidence') return { tasks };
-  if (game !== 'cards') return {};
+  if (game !== 'cards' && game !== 'plates') return {};
   try {
-    return validateCards(raw);
+    return game === 'plates' ? validatePlates(raw) : validateCards(raw);
   } catch {
     throw new HttpError(400, 'bad_backup');
   }
@@ -701,6 +735,8 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
       return newToken(env, id);
     } else if (child === 'timer' && method === 'POST') {
       return setTimer(env, request, id);
+    } else if (child === 'plate' && method === 'POST') {
+      return setPlate(env, request, id);
     } else if (child === 'responses') {
       if (method === 'GET') return listResponses(env, url, id);
       if (method === 'DELETE') return resetResponses(env, id);
