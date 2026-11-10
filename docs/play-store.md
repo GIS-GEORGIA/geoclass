@@ -31,6 +31,7 @@ Upload `build/app/outputs/bundle/release/app-release.aab`. Raise the number afte
 > • კოორდინატების დეტექტივი — ამოიკითხე კოორდინატები სასწავლო ჯარიმის ქვითრიდან ან ვიდეორეგისტრატორის კადრიდან, გადაიყვანე სხვა ფორმატში, იპოვე რუკაზე და დაასახელე ობიექტი.
 > • დახატე შენი უბანი — წერტილებით, ხაზებითა და პოლიგონებით დახატე რაც შეიძლება მეტი ობიექტი მასწავლებლის დათქმულ დროში.
 > • იპოვე ერთი და იგივე ადგილი — იპოვე რუკის ბარათების წყვილები, სხვადასხვა მასშტაბითა და მობრუნებული.
+> • ფერადი ფირფიტები — ნებაყოფლობითი თამაში პროექტორზე: ფერადი წერტილებიდან ამოიცანი კონტინენტი ან ქვეყანა და ისაუბრე ფერთა აღქმაზე. არაფერი იგზავნება და არაფერი ინახება.
 >
 > მოსწავლეს არ სჭირდება ანგარიში, სახელი ან ელფოსტა. აპს აქვს ქართული და ინგლისური ენა, ღია და მუქი თემა. კოდი ღიაა: github.com/GIS-GEORGIA/geoclass
 
@@ -45,6 +46,7 @@ Upload `build/app/outputs/bundle/release/app-release.aab`. Raise the number afte
 > • Coordinate detective — read the coordinates off a sample fine receipt or a dashcam frame, convert them, find the place on the map and name it.
 > • Map your neighbourhood — draw as many places as you can with points, lines and polygons, within the time the teacher sets.
 > • Find the same place — match pairs of map cards shown at different scales and turned.
+> • Colour plates — a voluntary game on the projector: spot a continent or country in coloured dots, then talk about colour vision. Nothing is sent or stored.
 >
 > Students need no account, name or email. Georgian and English, light and dark themes. Open source: github.com/GIS-GEORGIA/geoclass
 

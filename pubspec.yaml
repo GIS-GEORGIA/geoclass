@@ -70,6 +70,7 @@ flutter:
   assets:
     - assets/places.txt
     - assets/countries.json
+    - assets/plates.json
   fonts:
     - family: NotoSansGeorgian
       fonts:

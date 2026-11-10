@@ -90,6 +90,20 @@ The cards screens carry the credit that OpenStreetMap and Tracestrack Topo requi
 
 The app turns the cards itself, so a place needs no rotated copies. Students' phones receive the file names of the chosen pairs, which say which cards match. This is a classroom game, so that is accepted; neutral names like `p01-1.jpg` and `p01-2.jpg` make it less obvious.
 
+## Colour plates
+
+A teacher-only screen for the projector, opened from the palette button on the home screen. Each plate is a circle of coloured dots with a continent or country hidden in it, in colours of about the same lightness, so the shape shows only by its hue, as on colour vision plates. The class says the answers aloud; students use no phones, and nothing is sent or stored.
+
+It opens with a notice for the teacher to read aloud: taking part is voluntary, the class answers together and nobody is asked alone, "I can't see it" is a normal answer, it is not a medical test, and nothing is collected. "Show the answer" fades the background and darkens the shape, so everyone can see it. It ends with a short explanation of colour vision and why map colours matter. Arrow keys or Page Up/Down move between plates, Space or Enter shows the answer.
+
+The plates are drawn by the app from outlines in `assets/plates.json`. To change the list, edit `tool/plate_shapes.json` and rebuild from Natural Earth's [`ne_50m_admin_0_countries.geojson`](https://github.com/nvkelso/natural-earth-vector/tree/master/geojson):
+
+```bash
+node tool/build_plates.mjs ne_50m_admin_0_countries.geojson
+```
+
+An entry takes `countries` (ADM0_A3 codes, joined into one shape), `continent`, or `file`: a GeoJSON of your own in WGS84, for example a municipality exported from QGIS, with the path relative to `tool/`. Simple, recognisable outlines work best; small islands are left out.
+
 ## How it fits together
 
 ```
@@ -171,6 +185,7 @@ node tool/build_places.mjs cities15000.txt GE.txt
 ## Data and credits
 
 - Map data © OpenStreetMap contributors (ODbL), [OpenTopoMap](https://opentopomap.org/about) (CC BY-SA). Base map addresses are in `lib/geo_map.dart`.
+- Outlines in the colour plates: Natural Earth (public domain).
 - Places: GeoNames (CC BY 4.0). Country names: Unicode CLDR.
 - Font: Noto Sans Georgian (SIL OFL).
 - Font: Roboto, reduced to Latin, Greek, Cyrillic and punctuation (Apache 2.0, `assets/fonts/Roboto_LICENSE.txt`).

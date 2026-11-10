@@ -9,6 +9,7 @@ import 'cards.dart';
 import 'cards_setup_page.dart';
 import 'evidence.dart';
 import 'evidence_setup_page.dart';
+import 'plates_page.dart';
 import 'api.dart';
 import 'coordinates_setup_page.dart';
 import 'l10n.dart';
@@ -343,6 +344,14 @@ class _SessionListState extends State<_SessionList> {
       appBar: AppBar(
         title: Text(s['sessions']),
         actions: [
+          // Played on the class screen only: no session, nothing sent.
+          IconButton(
+            tooltip: s['plates_title'],
+            icon: const Icon(Icons.palette_outlined),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => PlatesPage(s: s, lang: widget.settings.lang),
+            )),
+          ),
           IconButton(
             tooltip: s['site_qr_title'],
             icon: const Icon(Icons.qr_code),
