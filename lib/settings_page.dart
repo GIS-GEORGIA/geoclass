@@ -157,7 +157,7 @@ class _SettingsPageState extends State<SettingsPage> {
       );
 }
 
-/// The link to the code, at the bottom of the settings, with the loading cat.
+/// The link to the code, at the bottom of the settings, with a playing cat.
 class GithubCard extends StatelessWidget {
   final S s;
   const GithubCard({super.key, required this.s});
@@ -174,10 +174,10 @@ class GithubCard extends StatelessWidget {
           child: Column(
             children: [
               SizedBox(
-                width: 120,
-                height: 120,
+                width: 260,
+                height: 111, // the animation is 1070 × 456
                 child: Lottie.asset(
-                  'assets/lottie/loading_cat.json',
+                  'assets/lottie/playing_cat.json',
                   // A still cat instead of nothing, where the animation can't load.
                   errorBuilder: (_, _, _) => Icon(Icons.pets, size: 64, color: theme.colorScheme.primary),
                 ),
@@ -196,8 +196,6 @@ class GithubCard extends StatelessWidget {
                 githubUrl.replaceFirst('https://', ''),
                 style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.primary),
               ),
-              const SizedBox(height: 8),
-              Text(s['cat_credit'], style: theme.textTheme.labelSmall, textAlign: TextAlign.center),
             ],
           ),
         ),

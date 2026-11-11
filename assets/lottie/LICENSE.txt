@@ -1,5 +1,5 @@
-loading_cat.json — "Loading cat" by Tasha Kostyuk
-https://lottiefiles.com/free-animation/loading-cat-jXwKusdtpk
+playing_cat.json — "Cat playing animation" by Abdul Latif
+https://lottiefiles.com/free-animation/cat-playing-animation-1cwXJbHzz7
 Distributed under the Lottie Simple License (FL 9.13.21), as published at
 https://lottiefiles.com/page/license :
 

@@ -72,7 +72,7 @@ flutter:
     - assets/places.txt
     - assets/countries.json
     - assets/plates.json
-    - assets/lottie/loading_cat.json
+    - assets/lottie/playing_cat.json
   fonts:
     - family: NotoSansGeorgian
       fonts:
