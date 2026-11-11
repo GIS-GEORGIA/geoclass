@@ -66,7 +66,7 @@ class Api {
 
   // Student
   Future<Map<String, dynamic>> join(String token) => _send('POST', 'join', {'token': token});
-  Future<void> submit(Map<String, dynamic> submission) => _send('POST', 'submit', submission);
+  Future<Map<String, dynamic>> submit(Map<String, dynamic> submission) => _send('POST', 'submit', submission);
 
   /// Deletes this device's answers in the session; returns how many there were.
   Future<int> forget(String token, String participantId) async =>
@@ -89,6 +89,7 @@ class Api {
     Map<String, dynamic>? cards,
     List<Map<String, dynamic>>? plates,
     Map<String, dynamic>? puzzle,
+    Map<String, dynamic>? layout,
   }) async {
     final data = await _send('POST', 'sessions', {
       'name': name,
@@ -97,6 +98,7 @@ class Api {
       'cards': ?cards,
       'plates': ?(plates == null ? null : {'deck': plates}),
       'puzzle': ?puzzle,
+      'layout': ?layout,
     });
     return (SessionInfo.fromJson(data['session'] as Map<String, dynamic>), data['token'] as String);
   }

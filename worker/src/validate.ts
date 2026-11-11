@@ -86,6 +86,7 @@ export function validateAnswer(game: string, raw: unknown): Record<string, unkno
     if (typeof piece !== 'number' || !Number.isInteger(piece) || piece < 0 || piece >= MAX_PIECES) throw new HttpError(400, 'bad_answer');
     return { ok: a.ok, piece };
   }
+  if (game === 'layout') return validateLayoutAnswer(a);
   if (game === 'evidence') {
     const q = oneOf(a.q, QUESTIONS);
     if (q === 'coords') return { q, raw: text(a.raw, 60, true), format: oneOf(a.format, FORMATS) };
@@ -176,6 +177,63 @@ export function validatePuzzle(raw: unknown): PuzzleSettings {
     seed: int(c.seed, 0, 0x7fffffff),
     pieces: grid ? (c.rows as number) * (c.cols as number) : int(c.pieces, 2, MAX_PIECES),
   };
+}
+
+export const LAYOUT_ELEMENTS = ['title', 'north', 'legend', 'scale'];
+const LAYOUT_GRIDS = [0, 0.5, 1];
+const MAX_UNITS = 80;
+
+export type LayoutSettings = { area: string; legend: number[] };
+
+/**
+ * The map layout game: the area and the legend, the colour each unit gets (an index into the app's palette).
+ * The server keeps the legend so it can check the colouring itself.
+ */
+export function validateLayout(raw: unknown): LayoutSettings {
+  const c = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+  if (typeof c.area !== 'string' || !AREA_RE.test(c.area)) throw new HttpError(400, 'bad_layout');
+  const legend = c.legend;
+  if (!Array.isArray(legend) || legend.length < 2 || legend.length > MAX_UNITS) throw new HttpError(400, 'bad_layout');
+  for (const v of legend) {
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v >= MAX_UNITS) throw new HttpError(400, 'bad_layout');
+  }
+  return { area: c.area, legend: legend as number[] };
+}
+
+/** A student's sheet: the colour of each unit (-1 for none), the elements on the A4 page, the grid and the title. */
+function validateLayoutAnswer(a: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(a.fills) || a.fills.length > MAX_UNITS) throw new HttpError(400, 'bad_answer');
+  const fills = a.fills.map((v: unknown) => {
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < -1 || v >= MAX_UNITS) throw new HttpError(400, 'bad_answer');
+    return v;
+  });
+  if (!Array.isArray(a.elements) || a.elements.length > LAYOUT_ELEMENTS.length) throw new HttpError(400, 'bad_answer');
+  const seen = new Set<string>();
+  const fraction = (v: unknown, min: number, max: number) => {
+    if (typeof v !== 'number' || !(v >= min && v <= max)) throw new HttpError(400, 'bad_answer');
+    return Math.round(v * 1e4) / 1e4;
+  };
+  const elements = a.elements.map((e: Record<string, unknown>) => {
+    const kind = oneOf(e?.kind, LAYOUT_ELEMENTS);
+    if (seen.has(kind)) throw new HttpError(400, 'bad_answer');
+    seen.add(kind);
+    // Where it is, as parts of the page's width and height: an element may be left beside the page.
+    return { kind, x: fraction(e.x, -1, 2), y: fraction(e.y, -1, 2), w: fraction(e.w, 0.01, 1), h: fraction(e.h, 0.01, 1) };
+  });
+  if (typeof a.grid !== 'number' || !LAYOUT_GRIDS.includes(a.grid)) throw new HttpError(400, 'bad_answer');
+  return { fills, elements, grid: a.grid, title: text(a.title, 80, false) };
+}
+
+/** Out of 100: 70 for the colouring, 6 for each element on the page, 6 for the grid. A title has to say something. */
+export function scoreLayout(legend: number[], answer: Record<string, unknown>): number {
+  const fills = answer.fills as number[];
+  const right = legend.filter((c, i) => fills[i] === c).length;
+  const on = (e: { kind: string; x: number; y: number; w: number; h: number }) =>
+    e.x + e.w / 2 >= 0 && e.x + e.w / 2 <= 1 && e.y + e.h / 2 >= 0 && e.y + e.h / 2 <= 1;
+  const placed = (answer.elements as { kind: string; x: number; y: number; w: number; h: number }[]).filter(
+    (e) => on(e) && (e.kind !== 'title' || (answer.title as string).length > 0),
+  ).length;
+  return Math.round((70 * right) / legend.length) + 6 * placed + (answer.grid ? 6 : 0);
 }
 
 export type CardPair = { a: string; b: string; label: string; labelEn: string; ra: number; rb: number };

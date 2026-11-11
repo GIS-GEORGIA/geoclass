@@ -468,6 +468,75 @@ describe('puzzle game', () => {
   });
 });
 
+describe('map layout game', () => {
+  const layout = { area: 'georgia', legend: [3, 0, 1, 2] };
+  const sheet = (over: Record<string, unknown> = {}) => ({
+    fills: [3, 0, 2, -1],
+    elements: [
+      { kind: 'title', x: 0.3, y: 0.02, w: 0.4, h: 0.08 },
+      { kind: 'north', x: 0.9, y: 0.1, w: 0.06, h: 0.1 },
+      { kind: 'legend', x: 1.2, y: 0.5, w: 0.2, h: 0.3 },
+    ],
+    grid: 0.5,
+    title: 'საქართველოს რეგიონები',
+    ...over,
+  });
+
+  async function game() {
+    const res = await call('POST', 'sessions', { name: 'Layout', game: 'layout', layout: { ...layout, extra: 1 } });
+    expect(res.status).toBe(201);
+    return (await res.json()) as { session: { id: string; settings: unknown }; token: string };
+  }
+
+  const hand = (token: string, answer: unknown, participantId = 'student-0001') =>
+    student('submit', { token, submissionId: id('sub'), participantId, answer, lat: 0, lon: 0 });
+
+  async function rows(sessionId: string) {
+    return (await (await call('GET', `sessions/${sessionId}/responses`)).json()) as {
+      responses: { participantId: string; score: number; answer: { title: string } }[];
+    };
+  }
+
+  it('scores a sheet on the server, and a second one replaces the first', async () => {
+    const { session, token } = await game();
+    expect(session.settings).toEqual(layout);
+    const res = await hand(token, sheet());
+    expect(res.status).toBe(201);
+    // 2 of 4 colours right (35), title and north on the page (12), the legend off it, the grid on (6).
+    expect(((await res.json()) as { score: number }).score).toBe(53);
+    expect((await hand(token, sheet({ fills: [3, 0, 1, 2], title: '' }))).status).toBe(201);
+    await hand(token, sheet(), 'student-0002');
+    const { responses } = await rows(session.id);
+    expect(responses.map((r) => [r.participantId, r.score])).toEqual([
+      ['student-0001', 82],
+      ['student-0002', 53],
+    ]);
+  });
+
+  it('rejects a bad sheet or a bad legend', async () => {
+    const { token } = await game();
+    expect((await hand(token, sheet({ fills: [0, 1] }))).status).toBe(400);
+    expect((await hand(token, sheet({ grid: 2 }))).status).toBe(400);
+    expect((await hand(token, sheet({ elements: [{ kind: 'logo', x: 0, y: 0, w: 0.1, h: 0.1 }] }))).status).toBe(400);
+    expect((await hand(token, sheet({ elements: [{ kind: 'north', x: 0, y: 0, w: 0, h: 0.1 }] }))).status).toBe(400);
+    expect((await hand(token, sheet({ title: 'x'.repeat(81) }))).status).toBe(400);
+    const bad = async (l: unknown) => (await call('POST', 'sessions', { name: 'x', game: 'layout', layout: l })).status;
+    expect(await bad(undefined)).toBe(400);
+    expect(await bad({ area: 'georgia', legend: [1] })).toBe(400);
+    expect(await bad({ area: 'georgia', legend: [0, 80] })).toBe(400);
+    expect(await bad({ area: 'x/y', legend: [0, 1] })).toBe(400);
+  });
+
+  it('survives a backup and a restore, score worked out again', async () => {
+    const { session, token } = await game();
+    await hand(token, sheet());
+    const file = (await (await call('GET', `backup?session=${session.id}`)).json()) as { responses: { score?: number }[] };
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    expect((await rows(session.id)).responses.map((r) => r.score)).toEqual([53]);
+  });
+});
+
 describe('cards game', () => {
   const pairs = ['a', 'b', 'c'].map((x, i) => ({ a: `${x}-1.jpg`, b: `${x}-2.jpg`, label: `ადგილი ${i}`, ra: 0, rb: i * 90 }));
   const deck = { pairs, arrow: true, rotation: 'quarter' };

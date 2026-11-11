@@ -4,7 +4,7 @@ Classroom geography games. The teacher shows a QR code, students answer anonymou
 
 საკლასო გეოგრაფიული თამაშები. მასწავლებელი აჩვენებს QR კოდს, მოსწავლეები ტელეფონიდან ანონიმურად პასუხობენ, პასუხები კი პირდაპირ რუკაზე ჩნდება.
 
-**Status:** The travel, coordinates, aerial photo, coordinate detective, mapping, cards, colour plates and map puzzle games work from QR code to live map. Live at https://geoclass.qgis.ge. The Android build is ready to publish, see [docs/play-store.md](docs/play-store.md).
+**Status:** The travel, coordinates, aerial photo, coordinate detective, mapping, cards, colour plates, map puzzle and map layout games work from QR code to live map. Live at https://geoclass.qgis.ge. The Android build is ready to publish, see [docs/play-store.md](docs/play-store.md).
 
 | Stage | Contents | Status |
 |---|---|---|
@@ -133,6 +133,14 @@ node tool/build_ge_units.mjs
 ```
 
 Neighbouring units share their border ways in OSM; each way is simplified once, so neighbours keep exactly the same edge. OSM doesn't divide Abkhazia into Georgian municipalities, so in the municipality puzzle it is one piece, and Tbilisi is one too. The Tskhinvali Region, which OSM keeps apart as de facto districts, is on the board from the start as one area.
+
+## Map layout
+
+Each student gets Georgia's outline on an A4 landscape sheet, the regions (or one region's municipalities) drawn but blank, and a ready legend that gives every unit its own colour. They colour the units by the legend, put a title, north arrow, legend and scale bar on the page wherever they like (drag to move, the blue circle to resize), choose a 1° or 0.5° grid, hand the sheet in and print it as an A4 PDF.
+
+The teacher chooses the area; the colours are dealt at random and can be dealt again. The legend is kept in the session, so the server scores each sheet itself: 70 for the colouring (in proportion), 6 each for the title (with text), north arrow, legend and scale bar on the page, and 6 for the grid. Handing in again replaces the sheet. The teacher sees every sheet, can open it large and download it as a PDF.
+
+The scale bar and the numeric scale (1 : n on A4) are worked out from the map's Web Mercator scale at its middle latitude, so they hold for a print at 100 %. The PDF is the sheet drawn at about 200 dpi, made on the device with the [`pdf`](https://pub.dev/packages/pdf) package (Apache 2.0); `image` is kept below 4.6 because `pdf` 3.12 needs `archive` below 4.1. The outlines are those of the puzzle (`assets/ge_units.json`), and every sheet carries the OSM credit.
 
 ## Privacy and GDPR
 

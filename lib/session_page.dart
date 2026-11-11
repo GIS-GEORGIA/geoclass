@@ -13,6 +13,7 @@ import 'models.dart';
 import 'places.dart';
 import 'plates_session_page.dart';
 import 'puzzle_session_page.dart';
+import 'layout_session_page.dart';
 import 'session_base.dart';
 import 'settings.dart';
 
@@ -23,6 +24,7 @@ Widget sessionPageFor(Settings settings, SessionInfo session, {bool showQr = fal
       'evidence' => EvidenceSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
       'plates' => PlatesSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
       'puzzle' => PuzzleSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
+      'layout' => LayoutSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
       'mapping' => MappingSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
       _ => CoordinatesSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
     };

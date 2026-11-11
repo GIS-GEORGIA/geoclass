@@ -20,3 +20,11 @@ Future<void> saveJsonBackup(Map<String, dynamic> backup, String label) {
     'application/json',
   );
 }
+
+Future<void> saveBytes(Uint8List bytes, String name, String extension, String mime) => FileSaver.instance.saveFile(
+      name: name,
+      bytes: bytes,
+      fileExtension: extension,
+      mimeType: MimeType.custom,
+      customMimeType: mime,
+    );

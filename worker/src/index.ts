@@ -8,6 +8,9 @@ import {
   validateAnswer,
   validateCards,
   validatePuzzle,
+  validateLayout,
+  scoreLayout,
+  type LayoutSettings,
   validateEvidence,
   validatePlates,
   validateTasks,
@@ -87,7 +90,7 @@ type SessionRow = {
 };
 
 const SESSION_COLUMNS = 'id, name, game, status, rev, archived, settings, created_at';
-const GAMES = ['travel', 'coordinates', 'aerial', 'mapping', 'cards', 'evidence', 'plates', 'puzzle'];
+const GAMES = ['travel', 'coordinates', 'aerial', 'mapping', 'cards', 'evidence', 'plates', 'puzzle', 'layout'];
 // Games played against the teacher's clock.
 const TIMED_GAMES = ['mapping', 'cards', 'puzzle'];
 // Games made of tasks that the server scores.
@@ -217,6 +220,7 @@ async function submit(env: Env, request: Request): Promise<Response> {
   const answer = validateAnswer(s.game, body.answer);
   if (s.game === 'mapping') return submitObject(env, s, submissionId, participantId, answer);
   if (s.game === 'cards' || s.game === 'puzzle') return submitCardTry(env, s, submissionId, participantId, answer);
+  if (s.game === 'layout') return submitLayout(env, s, submissionId, participantId, answer);
   if (s.game === 'evidence') return submitEvidence(env, s, submissionId, participantId, answer, body.round, lat, lon);
 
   const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM responses WHERE session_id = ? AND participant_id != ?')
@@ -347,6 +351,30 @@ async function submitCardTry(
   return json({ ok: true, duplicate: stored[0].meta.changes === 0 }, stored[0].meta.changes === 0 ? 200 : 201);
 }
 
+/** A student hands in the map sheet. Handing it in again replaces it: one sheet per student, scored here. */
+async function submitLayout(
+  env: Env,
+  s: SessionRow,
+  submissionId: string,
+  participantId: string,
+  answer: Record<string, unknown>,
+): Promise<Response> {
+  const { legend } = JSON.parse(s.settings) as LayoutSettings;
+  if ((answer.fills as number[]).length !== legend.length) throw new HttpError(400, 'bad_answer');
+  const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM responses WHERE session_id = ? AND participant_id != ?')
+    .bind(s.id, participantId)
+    .first<{ n: number }>();
+  if ((count?.n ?? 0) >= MAX_RESPONSES_PER_SESSION) throw new HttpError(429, 'session_full');
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM responses WHERE session_id = ? AND participant_id = ? AND id != ?').bind(s.id, participantId, submissionId),
+    env.DB.prepare(
+      'INSERT OR IGNORE INTO responses (id, session_id, participant_id, round, answer, lat, lon, score, created_at) VALUES (?, ?, ?, 0, ?, 0, 0, ?, ?)',
+    ).bind(submissionId, s.id, participantId, JSON.stringify(answer), scoreLayout(legend, answer), nowSec()),
+    bumpRev(env, s.id),
+  ]);
+  return json({ ok: true, duplicate: false, score: scoreLayout(legend, answer) }, 201);
+}
+
 /** One answer of the evidence game: the task's number comes as the round, the question in the answer. */
 async function submitEvidence(
   env: Env,
@@ -413,7 +441,15 @@ async function listSessions(env: Env): Promise<Response> {
 }
 
 async function createSession(env: Env, request: Request): Promise<Response> {
-  const body = await readBody<{ name?: unknown; game?: unknown; tasks?: unknown; cards?: unknown; plates?: unknown; puzzle?: unknown }>(
+  const body = await readBody<{
+    name?: unknown;
+    game?: unknown;
+    tasks?: unknown;
+    cards?: unknown;
+    plates?: unknown;
+    puzzle?: unknown;
+    layout?: unknown;
+  }>(
     request,
   );
   const name = cleanName(body.name);
@@ -428,7 +464,9 @@ async function createSession(env: Env, request: Request): Promise<Response> {
           ? validatePlates(body.plates)
           : body.game === 'puzzle'
             ? validatePuzzle(body.puzzle)
-            : {};
+            : body.game === 'layout'
+              ? validateLayout(body.layout)
+              : {};
   const id = crypto.randomUUID();
   const token = randomToken();
   await env.DB.prepare('INSERT INTO sessions (id, name, game, token_hash, settings, created_at) VALUES (?, ?, ?, ?, ?, ?)')
@@ -612,8 +650,9 @@ function restoredTasks(game: string, raw: unknown): (Task | EvidenceTask)[] {
 /** The settings a restored session keeps: the task list or the deck. The clock is not restored, and plates start again. */
 function restoredSettings(game: string, tasks: (Task | EvidenceTask)[], raw: BackupSession['settings']): object {
   if (TASK_GAMES.includes(game) || game === 'evidence') return { tasks };
-  if (game !== 'cards' && game !== 'plates' && game !== 'puzzle') return {};
+  if (game !== 'cards' && game !== 'plates' && game !== 'puzzle' && game !== 'layout') return {};
   try {
+    if (game === 'layout') return validateLayout(raw);
     return game === 'plates' ? validatePlates(raw) : game === 'puzzle' ? validatePuzzle(raw) : validateCards(raw);
   } catch {
     throw new HttpError(400, 'bad_backup');
@@ -630,14 +669,15 @@ async function restore(env: Env, request: Request): Promise<Response> {
   }
 
   // Everything is validated first, so a bad file changes nothing.
-  const games = new Map<string, { game: string; tasks: (Task | EvidenceTask)[] }>();
+  const games = new Map<string, { game: string; tasks: (Task | EvidenceTask)[]; legend?: number[] }>();
   const statements: D1PreparedStatement[] = [];
   for (const s of data.sessions) {
     if (typeof s.id !== 'string' || !ID_RE.test(s.id) || typeof s.game !== 'string' || !GAMES.includes(s.game) || typeof s.createdAt !== 'number') {
       throw new HttpError(400, 'bad_backup');
     }
     const tasks = TASK_GAMES.includes(s.game) || s.game === 'evidence' ? restoredTasks(s.game, s.settings?.tasks) : [];
-    games.set(s.id, { game: s.game, tasks });
+    const settings = restoredSettings(s.game, tasks, s.settings);
+    games.set(s.id, { game: s.game, tasks, legend: (settings as Partial<LayoutSettings>).legend });
     statements.push(
       env.DB.prepare(
         "INSERT OR IGNORE INTO sessions (id, name, game, status, token_hash, archived, settings, created_at) VALUES (?, ?, ?, 'closed', ?, ?, ?, ?)",
@@ -647,7 +687,7 @@ async function restore(env: Env, request: Request): Promise<Response> {
         s.game,
         await sha256(randomToken()),
         s.archived === true ? 1 : 0,
-        JSON.stringify(restoredSettings(s.game, tasks, s.settings)),
+        JSON.stringify(settings),
         s.createdAt,
       ),
     );
@@ -716,7 +756,7 @@ async function restore(env: Env, request: Request): Promise<Response> {
         r.lat as number,
         r.lon as number,
         distance,
-        distance === null ? null : scoreFor(distance),
+        distance !== null ? scoreFor(distance) : session.legend ? scoreLayout(session.legend, answer) : null,
         r.hidden === true ? 1 : 0,
         r.createdAt as number,
       ),
