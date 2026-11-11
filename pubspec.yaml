@@ -45,6 +45,7 @@ dependencies:
   file_picker: ^13.3.2
   proj4dart: ^3.0.0
   flutter_compass: ^0.8.1
+  lottie: ^3.7.0
 
 dev_dependencies:
   flutter_test:
@@ -71,6 +72,7 @@ flutter:
     - assets/places.txt
     - assets/countries.json
     - assets/plates.json
+    - assets/lottie/loading_cat.json
   fonts:
     - family: NotoSansGeorgian
       fonts:

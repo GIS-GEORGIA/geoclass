@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
@@ -135,19 +136,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   _title(s['about']),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.code),
-                    title: Text(s['github']),
-                    subtitle: const Text(githubUrl),
-                    onTap: () => launchUrl(Uri.parse(githubUrl)),
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.privacy_tip_outlined),
                     title: Text(s['privacy']),
                     onTap: () => launchUrl(Uri.parse('$publicUrl/privacy/')),
                   ),
                   const SizedBox(height: 8),
                   Text(s['credits'], style: Theme.of(context).textTheme.bodySmall),
+                  const SizedBox(height: 24),
+                  GithubCard(s: s),
                 ],
               ),
             ),
@@ -159,4 +155,53 @@ class _SettingsPageState extends State<SettingsPage> {
         padding: const EdgeInsets.only(top: 20, bottom: 8),
         child: Text(text, style: Theme.of(context).textTheme.titleMedium),
       );
+}
+
+/// The link to the code, at the bottom of the settings, with the loading cat.
+class GithubCard extends StatelessWidget {
+  final S s;
+  const GithubCard({super.key, required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => launchUrl(Uri.parse(githubUrl)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+          child: Column(
+            children: [
+              SizedBox(
+                width: 120,
+                height: 120,
+                child: Lottie.asset(
+                  'assets/lottie/loading_cat.json',
+                  // A still cat instead of nothing, where the animation can't load.
+                  errorBuilder: (_, _, _) => Icon(Icons.pets, size: 64, color: theme.colorScheme.primary),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.code, size: 20, color: theme.colorScheme.primary),
+                  const SizedBox(width: 6),
+                  Text(s['github'], style: theme.textTheme.titleMedium),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text(
+                githubUrl.replaceFirst('https://', ''),
+                style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.primary),
+              ),
+              const SizedBox(height: 8),
+              Text(s['cat_credit'], style: theme.textTheme.labelSmall, textAlign: TextAlign.center),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

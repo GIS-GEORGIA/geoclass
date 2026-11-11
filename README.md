@@ -206,6 +206,7 @@ node tool/build_places.mjs cities15000.txt GE.txt
 - Places: GeoNames (CC BY 4.0). Country names: Unicode CLDR.
 - Font: Noto Sans Georgian (SIL OFL).
 - Font: Roboto, reduced to Latin, Greek, Cyrillic and punctuation (Apache 2.0, `assets/fonts/Roboto_LICENSE.txt`).
+- The cat in the settings: "Loading cat" by Tasha Kostyuk, [LottieFiles](https://lottiefiles.com/free-animation/loading-cat-jXwKusdtpk), under the Lottie Simple License (`assets/lottie/LICENSE.txt`).
 
 ## License
 
