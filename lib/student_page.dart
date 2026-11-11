@@ -52,6 +52,7 @@ class _StudentPageState extends State<StudentPage> {
   int _now = 0;
   String? _error;
   bool _busy = false;
+  int _generation = 0; // a new one restarts the game widgets, after the student erased their answers
 
   LatLng? _point;
   String _country = '';
@@ -133,6 +134,17 @@ class _StudentPageState extends State<StudentPage> {
     }
   }
 
+  /// The student erases their answers in this session, on the server and on this device, and starts afresh.
+  Future<int> _forget() async {
+    final n = await _api.forget(widget.token, await participantId());
+    await forgetSessionOnDevice(widget.token);
+    if (mounted) {
+      setState(() => _generation++);
+      _load();
+    }
+    return n;
+  }
+
   Future<PlaceIndex> _places() async => _index ??= await PlaceIndex.load();
 
   Future<void> _search(String query) async {
@@ -212,7 +224,7 @@ class _StudentPageState extends State<StudentPage> {
               onPressed: () => widget.settings.setLang(widget.settings.lang == 'ka' ? 'en' : 'ka'),
               child: Text(widget.settings.lang == 'ka' ? 'EN' : 'KA'),
             ),
-            PrivacyInfoButton(s: s),
+            PrivacyInfoButton(s: s, onForget: _stage == _Stage.loading || _stage == _Stage.gone ? null : _forget),
             IconButton(
               tooltip: s['settings'],
               icon: const Icon(Icons.settings),
@@ -222,7 +234,7 @@ class _StudentPageState extends State<StudentPage> {
             ),
           ],
         ),
-        body: SafeArea(child: _body()),
+        body: SafeArea(child: KeyedSubtree(key: ValueKey(_generation), child: _body())),
       );
 
   Widget _body() => switch (_stage) {

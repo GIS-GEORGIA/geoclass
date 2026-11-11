@@ -68,6 +68,10 @@ class Api {
   Future<Map<String, dynamic>> join(String token) => _send('POST', 'join', {'token': token});
   Future<void> submit(Map<String, dynamic> submission) => _send('POST', 'submit', submission);
 
+  /// Deletes this device's answers in the session; returns how many there were.
+  Future<int> forget(String token, String participantId) async =>
+      ((await _send('POST', 'forget', {'token': token, 'participantId': participantId}))['deleted'] as num).toInt();
+
   // Teacher
   Future<void> checkKey() => _send('GET', 'me');
   Future<String> keyHint() async => (await _send('GET', 'key-hint'))['hint'] as String;

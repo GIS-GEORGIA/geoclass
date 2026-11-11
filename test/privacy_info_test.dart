@@ -10,9 +10,13 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       final s = S(lang);
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(appBar: AppBar(actions: [PrivacyInfoButton(s: s)])),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            appBar: AppBar(actions: [PrivacyInfoButton(s: s)]),
+          ),
+        ),
+      );
       await tester.tap(find.byIcon(Icons.info_outline));
       await tester.pumpAndSettle();
       expect(find.text(s['info_title']), findsOneWidget);
@@ -26,4 +30,62 @@ void main() {
       expect(find.text(s['info_title']), findsNothing);
     });
   }
+
+  testWidgets('a student can erase their answers, after saying yes; the teacher side has no such button', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const s = S('ka');
+    var calls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          appBar: AppBar(
+            actions: [
+              PrivacyInfoButton(
+                s: s,
+                onForget: () async {
+                  calls++;
+                  return 3;
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byIcon(Icons.info_outline));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text(s['forget_title']));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(s['forget_title']));
+    await tester.pumpAndSettle();
+    expect(find.text(s['forget_body']), findsOneWidget);
+    await tester.tap(find.text(s['cancel']));
+    await tester.pumpAndSettle();
+    expect(calls, 0);
+
+    await tester.ensureVisible(find.text(s['forget_title']));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(s['forget_title']));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(s['forget_do']));
+    await tester.pumpAndSettle();
+    expect(calls, 1);
+    expect(find.text(s.f('forget_done', [3])), findsOneWidget);
+    expect(find.text(s['info_title']), findsNothing);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          appBar: AppBar(actions: const [PrivacyInfoButton(s: s)]),
+        ),
+      ),
+    );
+    await tester.tap(find.byIcon(Icons.info_outline));
+    await tester.pumpAndSettle();
+    expect(find.text(s['forget_title']), findsNothing);
+  });
 }

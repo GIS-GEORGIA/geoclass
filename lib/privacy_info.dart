@@ -9,7 +9,10 @@ const privacyPoints = ['info_1', 'info_2', 'info_3', 'info_4', 'info_5', 'info_6
 /// The ⓘ in the top bar: in short, what GeoClass doesn't ask for or collect, with a link to the full policy.
 class PrivacyInfoButton extends StatelessWidget {
   final S s;
-  const PrivacyInfoButton({super.key, required this.s});
+
+  /// On a student's page: erases this device's answers in the session. Returns how many were deleted.
+  final Future<int> Function()? onForget;
+  const PrivacyInfoButton({super.key, required this.s, this.onForget});
 
   @override
   Widget build(BuildContext context) => IconButton(
@@ -17,14 +20,44 @@ class PrivacyInfoButton extends StatelessWidget {
     icon: const Icon(Icons.info_outline),
     onPressed: () => showDialog<void>(
       context: context,
-      builder: (_) => PrivacyInfoDialog(s: s),
+      builder: (_) => PrivacyInfoDialog(s: s, onForget: onForget),
     ),
   );
 }
 
 class PrivacyInfoDialog extends StatelessWidget {
   final S s;
-  const PrivacyInfoDialog({super.key, required this.s});
+  final Future<int> Function()? onForget;
+  const PrivacyInfoDialog({super.key, required this.s, this.onForget});
+
+  Future<void> _forget(BuildContext context) async {
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(s['forget_title']),
+        content: Text(s['forget_body']),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(s['cancel'])),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(s['forget_do']),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final n = await onForget!();
+      if (context.mounted) Navigator.pop(context);
+      messenger.showSnackBar(SnackBar(content: Text(s.f('forget_done', [n]))));
+    } on ApiError catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(s.f('failed', [s[e.key]]))));
+    } on NoConnection {
+      messenger.showSnackBar(SnackBar(content: Text(s.f('failed', [s['no_connection']]))));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -56,6 +89,14 @@ class PrivacyInfoDialog extends StatelessWidget {
                   ),
                 ),
               Text(s['info_technical'], style: text.bodySmall),
+              if (onForget != null) ...[
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () => _forget(context),
+                  icon: const Icon(Icons.delete_outline),
+                  label: Text(s['forget_title']),
+                ),
+              ],
             ],
           ),
         ),

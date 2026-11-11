@@ -408,6 +408,10 @@ class _SessionListState extends State<_SessionList> {
                             ),
                             onChanged: (v) => setState(() => _query = v),
                           ),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(s['keep_note'], style: Theme.of(context).textTheme.bodySmall),
+                          ),
                           const SizedBox(height: 12),
                           if (visible.isEmpty)
                             Padding(

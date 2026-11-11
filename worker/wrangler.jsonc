@@ -19,6 +19,8 @@
     }
   ],
   // A whole class shares one IP address and the mapping game sends many objects, so this limit is generous.
+  // Every night: sessions older than 6 months are deleted with their answers (deleteOld in src/retention.ts).
+  "triggers": { "crons": ["30 2 * * *"] },
   "ratelimits": [
     { "name": "SUBMIT_LIMIT", "namespace_id": "1001", "simple": { "limit": 600, "period": 60 } }
   ]

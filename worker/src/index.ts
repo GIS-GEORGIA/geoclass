@@ -14,6 +14,7 @@ import {
   type EvidenceTask,
   type Task,
 } from './validate';
+import { KEEP_SEC, deleteOld } from './retention';
 
 const MAX_RESPONSES_PER_SESSION = 2000;
 const MAX_BODY_BYTES = 8 * 1024;
@@ -377,6 +378,20 @@ async function submitEvidence(
   return json({ ok: true, duplicate: stored[0].meta.changes === 0, score, distanceM: distance }, stored[0].meta.changes === 0 ? 200 : 201);
 }
 
+/** A student deletes the answers of their own device in this session. The random id is known only to that device. */
+async function forget(env: Env, request: Request): Promise<Response> {
+  const limited = await env.SUBMIT_LIMIT?.limit({ key: request.headers.get('CF-Connecting-IP') ?? 'unknown' });
+  if (limited && !limited.success) throw new HttpError(429, 'rate_limited');
+  const { token, participantId } = await readBody<{ token?: unknown; participantId?: unknown }>(request);
+  const s = await sessionByToken(env, token);
+  if (typeof participantId !== 'string' || !ID_RE.test(participantId)) throw new HttpError(400, 'bad_id');
+  const [deleted] = await env.DB.batch([
+    env.DB.prepare('DELETE FROM responses WHERE session_id = ? AND participant_id = ?').bind(s.id, participantId),
+    bumpRev(env, s.id),
+  ]);
+  return json({ deleted: deleted.meta.changes ?? 0 });
+}
+
 // --- Teacher endpoints ---
 
 async function listSessions(env: Env): Promise<Response> {
@@ -711,6 +726,7 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
   if (key === 'GET health') return json({ ok: true });
   if (key === 'POST join') return join(env, request);
   if (key === 'POST submit') return submit(env, request);
+  if (key === 'POST forget') return forget(env, request);
   // Deliberately public: the key minus its ending, which the owner keeps in their head. Unset, it's a 404.
   if (key === 'GET key-hint') {
     if (!env.TEACHER_KEY_HINT) throw new HttpError(404, 'not_found');
@@ -759,5 +775,9 @@ export default {
       console.error(e);
       return json({ error: 'internal' }, 500);
     }
+  },
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    const n = await deleteOld(env);
+    if (n > 0) console.log(`deleted ${n} sessions older than ${KEEP_SEC / 86400} days`);
   },
 } satisfies ExportedHandler<Env>;

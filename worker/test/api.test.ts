@@ -869,3 +869,38 @@ describe('plates game', () => {
     expect(restored.session.settings).toEqual({ deck, at: 0, revealed: false });
   });
 });
+
+describe('privacy', () => {
+  it('a student deletes only their own answers, and only with the session token', async () => {
+    const { session, token } = await newSession();
+    await send(token, { participantId: 'student-mine-0001' });
+    await send(token, { participantId: 'student-else-0001' });
+    expect((await student('forget', { token: 'wrong', participantId: 'student-mine-0001' })).status).toBe(404);
+    expect((await student('forget', { token, participantId: 'x' })).status).toBe(400);
+
+    const before = (await responses(session.id)).session.rev;
+    const res = await student('forget', { token, participantId: 'student-mine-0001' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ deleted: 1 });
+    const after = await responses(session.id);
+    expect(after.responses).toHaveLength(1);
+    expect(after.session.rev).toBeGreaterThan(before);
+    expect(await (await student('forget', { token, participantId: 'student-mine-0001' })).json()).toEqual({ deleted: 0 });
+  });
+
+  it('deletes sessions and their answers six months after they were made', async () => {
+    const { deleteOld, KEEP_SEC } = await import('../src/retention');
+    const old = await newSession();
+    const fresh = await newSession();
+    await send(old.token);
+    await send(fresh.token);
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB.prepare('UPDATE sessions SET created_at = ? WHERE id = ?').bind(now - KEEP_SEC - 60, old.session.id).run();
+
+    expect(await deleteOld(env)).toBe(1);
+    const left = await env.DB.prepare('SELECT session_id FROM responses').all<{ session_id: string }>();
+    expect(left.results.map((r) => r.session_id)).toEqual([fresh.session.id]);
+    expect((await call('GET', `sessions/${old.session.id}/responses`)).status).toBe(404);
+    expect(await deleteOld(env)).toBe(0);
+  });
+});

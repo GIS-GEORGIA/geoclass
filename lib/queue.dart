@@ -22,6 +22,20 @@ Future<String> participantId() async {
   return id;
 }
 
+/// After the student erased their answers: nothing of this session stays on the device either
+/// (unsent answers, game progress, the cached session).
+Future<void> forgetSessionOnDevice(String token) async {
+  final p = await SharedPreferences.getInstance();
+  for (final key in p.getKeys().where((k) => k.endsWith('_$token')).toList()) {
+    await p.remove(key);
+  }
+  final raw = p.getString(SubmissionQueue._key);
+  if (raw != null) {
+    final left = [for (final e in jsonDecode(raw) as List) if ((e as Map)['token'] != token) e];
+    await p.setString(SubmissionQueue._key, jsonEncode(left));
+  }
+}
+
 /// Answers waiting to be sent. Kept on the device so a lost connection loses nothing.
 class SubmissionQueue {
   static const _key = 'pending_submissions';

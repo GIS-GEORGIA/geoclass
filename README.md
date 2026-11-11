@@ -112,6 +112,15 @@ An entry takes `countries` (ADM0_A3 codes, joined into one shape), `continent`, 
 
 The municipalities are the ones Georgia governs today. In the occupied territories OpenStreetMap has the de facto districts rather than Georgia's municipalities, so they are left out; Abkhazia is among the regions.
 
+## Privacy and GDPR
+
+GeoClass asks students for no name or contact; answers are linked only by a random code made on the device. What it keeps, why and for how long is in the privacy policy, `web/privacy/index.html`, written for the GDPR and the Law of Georgia on Personal Data Protection.
+
+- Sessions and their answers are deleted automatically 6 months after they were made: a cron trigger in `worker/wrangler.jsonc` runs `deleteOld` every night. Change `KEEP_SEC` in `worker/src/retention.ts` and the policy together.
+- A student can delete their own answers in a session from the ⓘ dialog on the student page (`POST /api/forget` with the session token and the device's random code). That also clears the session from the device.
+- Cloudflare's request logs (`observability` in `worker/wrangler.jsonc`) are kept for up to 7 days; the policy says so.
+- The app sets no cookies; browser storage holds only what the app needs.
+
 ## How it fits together
 
 ```
