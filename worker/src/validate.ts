@@ -79,6 +79,13 @@ export function validateAnswer(game: string, raw: unknown): Record<string, unkno
     if (a.ok) return { ok: true, pair: index(a.pair) };
     return { ok: false, x: index(a.x), y: index(a.y) };
   }
+  if (game === 'puzzle') {
+    // A placed piece, or a piece dropped in the wrong place (kept for the teacher's hardest pieces).
+    if (typeof a.ok !== 'boolean') throw new HttpError(400, 'bad_answer');
+    const piece = a.piece;
+    if (typeof piece !== 'number' || !Number.isInteger(piece) || piece < 0 || piece >= MAX_PIECES) throw new HttpError(400, 'bad_answer');
+    return { ok: a.ok, piece };
+  }
   if (game === 'evidence') {
     const q = oneOf(a.q, QUESTIONS);
     if (q === 'coords') return { q, raw: text(a.raw, 60, true), format: oneOf(a.format, FORMATS) };
@@ -114,6 +121,61 @@ export function validatePlates(raw: unknown): PlatesSettings {
     return { shape: p.shape, palette: oneOf(p.palette, PLATE_PALETTES), seed: p.seed };
   });
   return { deck, at: 0, revealed: false };
+}
+
+export const MAX_PIECES = 80;
+const PUZZLE_KINDS = ['regions', 'municipalities', 'grid'];
+const PUZZLE_HELP = ['outline', 'frame', 'none'];
+const PUZZLE_LOOKS = ['map', 'color'];
+const PUZZLE_BASES = ['osm', 'topo'];
+const AREA_RE = /^(georgia|ge_[a-z_]{1,40})$/;
+
+export type PuzzleSettings = {
+  kind: string;
+  area: string;
+  rows: number;
+  cols: number;
+  rotation: string;
+  help: string;
+  names: boolean;
+  look: string;
+  base: string;
+  seed: number;
+  pieces: number;
+};
+
+/**
+ * The puzzle the teacher chose. The app cuts the pieces from these settings, the same for every student;
+ * the server keeps only how many pieces there are, to check the answers.
+ */
+export function validatePuzzle(raw: unknown): PuzzleSettings {
+  const c = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+  const int = (v: unknown, min: number, max: number) => {
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < min || v > max) throw new HttpError(400, 'bad_puzzle');
+    return v;
+  };
+  const pick = (v: unknown, allowed: string[]) => {
+    if (typeof v !== 'string' || !allowed.includes(v)) throw new HttpError(400, 'bad_puzzle');
+    return v;
+  };
+  const kind = pick(c.kind, PUZZLE_KINDS);
+  if (typeof c.area !== 'string' || !AREA_RE.test(c.area) || (kind === 'regions' && c.area !== 'georgia')) {
+    throw new HttpError(400, 'bad_puzzle');
+  }
+  const grid = kind === 'grid';
+  return {
+    kind,
+    area: c.area,
+    rows: grid ? int(c.rows, 3, 8) : 0,
+    cols: grid ? int(c.cols, 3, 8) : 0,
+    rotation: pick(c.rotation ?? 'none', ROTATIONS),
+    help: pick(c.help ?? 'outline', PUZZLE_HELP),
+    names: c.names === true,
+    look: pick(c.look ?? 'map', PUZZLE_LOOKS),
+    base: pick(c.base ?? 'osm', PUZZLE_BASES),
+    seed: int(c.seed, 0, 0x7fffffff),
+    pieces: grid ? (c.rows as number) * (c.cols as number) : int(c.pieces, 2, MAX_PIECES),
+  };
 }
 
 export type CardPair = { a: string; b: string; label: string; labelEn: string; ra: number; rb: number };

@@ -11,6 +11,8 @@ import 'evidence.dart';
 import 'evidence_setup_page.dart';
 import 'plates.dart';
 import 'plates_setup_page.dart';
+import 'puzzle.dart';
+import 'puzzle_setup_page.dart';
 import 'privacy_info.dart';
 import 'api.dart';
 import 'coordinates_setup_page.dart';
@@ -259,7 +261,7 @@ class _SessionListState extends State<_SessionList> {
                 onChanged: (v) => setDialog(() => game = v!),
                 child: Column(
                   children: [
-                    for (final g in const ['travel', 'coordinates', 'aerial', 'evidence', 'mapping', 'cards', 'plates'])
+                    for (final g in const ['travel', 'coordinates', 'aerial', 'evidence', 'mapping', 'cards', 'plates', 'puzzle'])
                       RadioListTile<String>(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
@@ -300,7 +302,13 @@ class _SessionListState extends State<_SessionList> {
     Deck? deck;
     List<EvidenceTask>? evidence;
     List<PlateSpec>? plates;
-    if (game == 'plates') {
+    PuzzleSpec? puzzle;
+    if (game == 'puzzle') {
+      puzzle = await Navigator.of(context).push<PuzzleSpec>(MaterialPageRoute(
+        builder: (_) => PuzzleSetupPage(s: s, lang: widget.settings.lang),
+      ));
+      if (puzzle == null) return;
+    } else if (game == 'plates') {
       plates = await Navigator.of(context).push<List<PlateSpec>>(MaterialPageRoute(
         builder: (_) => PlatesSetupPage(s: s),
       ));
@@ -334,6 +342,7 @@ class _SessionListState extends State<_SessionList> {
         evidence: evidence?.map((t) => t.toJson()).toList(),
         cards: deck?.toJson(),
         plates: plates?.map((p) => p.toJson()).toList(),
+        puzzle: puzzle?.toJson(),
       );
       await widget.settings.setToken(session.id, token);
       await _open(session, showQr: true);
@@ -431,6 +440,7 @@ class _SessionListState extends State<_SessionList> {
                                   'cards' => Icons.style,
                                   'evidence' => Icons.receipt_long,
                                   'plates' => Icons.palette_outlined,
+                                  'puzzle' => Icons.extension,
                                   _ => Icons.travel_explore,
                                 }),
                                 title: Text(x.name),

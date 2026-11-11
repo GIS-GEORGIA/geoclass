@@ -4,7 +4,7 @@ Classroom geography games. The teacher shows a QR code, students answer anonymou
 
 საკლასო გეოგრაფიული თამაშები. მასწავლებელი აჩვენებს QR კოდს, მოსწავლეები ტელეფონიდან ანონიმურად პასუხობენ, პასუხები კი პირდაპირ რუკაზე ჩნდება.
 
-**Status:** The travel, coordinates, aerial photo, coordinate detective, mapping and cards games work from QR code to live map. Live at https://geoclass.qgis.ge. The Android build is ready to publish, see [docs/play-store.md](docs/play-store.md).
+**Status:** The travel, coordinates, aerial photo, coordinate detective, mapping, cards, colour plates and map puzzle games work from QR code to live map. Live at https://geoclass.qgis.ge. The Android build is ready to publish, see [docs/play-store.md](docs/play-store.md).
 
 | Stage | Contents | Status |
 |---|---|---|
@@ -112,6 +112,28 @@ An entry takes `countries` (ADM0_A3 codes, joined into one shape), `continent`, 
 
 The municipalities are the ones Georgia governs today. In the occupied territories OpenStreetMap has the de facto districts rather than Georgia's municipalities, so they are left out; Abkhazia is among the regions.
 
+## Map puzzle
+
+Each student puts a map of Georgia together on their own phone, against the teacher's clock. The teacher chooses:
+
+- **What it's made of:** the 12 regions; the municipalities of the whole country or of one region; or a classic jigsaw, 9 to 64 pieces cut from the map of Georgia or of a region.
+- **Turned pieces:** not at all, quarter turns or any angle (steps of 30°). A tap turns a piece.
+- **Help on the board:** the outline of every piece, only the outer border, or nothing.
+- **Names** under the pieces, or not. A placed piece always shows its name.
+- **Picture:** the live OpenStreetMap or OpenTopoMap map, or plain colours (neighbours never share one).
+
+A piece is dragged up from the tray to the board and stays where it belongs if it lands near its place, turned the right way; otherwise it counts as a wrong placement and goes back. Every phone deals its own order and turns. The teacher sees who finished, how fast (from the start of the clock) and with how many wrong placements, and which pieces were hardest. The solved picture is hidden on the teacher's screen until asked for, so it can't be copied from the projector.
+
+The app cuts the pieces itself, so every phone gets the same puzzle from a few settings; the map picture comes from the tiles at the right zoom (about 25 for all of Georgia), with the OSM credit always on screen. If the tiles don't load, the pieces are in plain colours.
+
+The outlines are in `assets/ge_units.json`, from OpenStreetMap through the Overpass API, with the relation ids from `tool/plate_shapes.json`:
+
+```bash
+node tool/build_ge_units.mjs
+```
+
+Neighbouring units share their border ways in OSM; each way is simplified once, so neighbours keep exactly the same edge. OSM doesn't divide Abkhazia into Georgian municipalities, so in the municipality puzzle it is one piece, and Tbilisi is one too. The Tskhinvali Region, which OSM keeps apart as de facto districts, is on the board from the start as one area.
+
 ## Privacy and GDPR
 
 GeoClass asks students for no name or contact; answers are linked only by a random code made on the device. What it keeps, why and for how long is in the privacy policy, `web/privacy/index.html`, written for the GDPR and the Law of Georgia on Personal Data Protection.
@@ -202,7 +224,7 @@ node tool/build_places.mjs cities15000.txt GE.txt
 ## Data and credits
 
 - Map data © OpenStreetMap contributors (ODbL), [OpenTopoMap](https://opentopomap.org/about) (CC BY-SA). Base map addresses are in `lib/geo_map.dart`.
-- Outlines in the colour plates: Natural Earth (public domain); regions and municipalities of Georgia © OpenStreetMap contributors (ODbL).
+- Outlines in the colour plates: Natural Earth (public domain); regions and municipalities of Georgia © OpenStreetMap contributors (ODbL). The same for the map puzzle (`assets/ge_units.json`).
 - Places: GeoNames (CC BY 4.0). Country names: Unicode CLDR.
 - Font: Noto Sans Georgian (SIL OFL).
 - Font: Roboto, reduced to Latin, Greek, Cyrillic and punctuation (Apache 2.0, `assets/fonts/Roboto_LICENSE.txt`).

@@ -17,6 +17,7 @@ import 'mapping_play.dart';
 import 'models.dart';
 import 'places.dart';
 import 'plates_play.dart';
+import 'puzzle_play.dart';
 import 'privacy_info.dart';
 import 'queue.dart';
 import 'settings.dart';
@@ -262,6 +263,15 @@ class _StudentPageState extends State<StudentPage> {
             token: widget.token,
             tasks: EvidenceTask.listFrom(_settings),
             resetAt: _resetAt,
+            api: _api,
+            onStopped: (status) => setState(() => _status = status),
+          ),
+        _Stage.form when _game == 'puzzle' => PuzzlePlay(
+            s: s,
+            lang: widget.settings.lang,
+            token: widget.token,
+            settings: _settings,
+            now: _now,
             api: _api,
             onStopped: (status) => setState(() => _status = status),
           ),

@@ -88,6 +88,7 @@ class Api {
     List<Map<String, dynamic>>? evidence,
     Map<String, dynamic>? cards,
     List<Map<String, dynamic>>? plates,
+    Map<String, dynamic>? puzzle,
   }) async {
     final data = await _send('POST', 'sessions', {
       'name': name,
@@ -95,6 +96,7 @@ class Api {
       'tasks': ?(evidence ?? tasks?.map((t) => t.toJson()).toList()),
       'cards': ?cards,
       'plates': ?(plates == null ? null : {'deck': plates}),
+      'puzzle': ?puzzle,
     });
     return (SessionInfo.fromJson(data['session'] as Map<String, dynamic>), data['token'] as String);
   }

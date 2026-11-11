@@ -7,6 +7,7 @@ import {
   scoreFor,
   validateAnswer,
   validateCards,
+  validatePuzzle,
   validateEvidence,
   validatePlates,
   validateTasks,
@@ -86,9 +87,9 @@ type SessionRow = {
 };
 
 const SESSION_COLUMNS = 'id, name, game, status, rev, archived, settings, created_at';
-const GAMES = ['travel', 'coordinates', 'aerial', 'mapping', 'cards', 'evidence', 'plates'];
+const GAMES = ['travel', 'coordinates', 'aerial', 'mapping', 'cards', 'evidence', 'plates', 'puzzle'];
 // Games played against the teacher's clock.
-const TIMED_GAMES = ['mapping', 'cards'];
+const TIMED_GAMES = ['mapping', 'cards', 'puzzle'];
 // Games made of tasks that the server scores.
 const TASK_GAMES = ['coordinates', 'aerial'];
 
@@ -215,7 +216,7 @@ async function submit(env: Env, request: Request): Promise<Response> {
   }
   const answer = validateAnswer(s.game, body.answer);
   if (s.game === 'mapping') return submitObject(env, s, submissionId, participantId, answer);
-  if (s.game === 'cards') return submitCardTry(env, s, submissionId, participantId, answer);
+  if (s.game === 'cards' || s.game === 'puzzle') return submitCardTry(env, s, submissionId, participantId, answer);
   if (s.game === 'evidence') return submitEvidence(env, s, submissionId, participantId, answer, body.round, lat, lon);
 
   const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM responses WHERE session_id = ? AND participant_id != ?')
@@ -296,7 +297,10 @@ async function submitObject(
   return json({ ok: true, duplicate: false }, 201);
 }
 
-/** A found pair or a wrong try in the cards game. A pair counts once per student: its number is the round. */
+/**
+ * A found pair or a wrong try in the cards game, a placed piece or a wrong placement in the puzzle.
+ * A pair or a piece counts once per student: its number is the round.
+ */
 async function submitCardTry(
   env: Env,
   s: SessionRow,
@@ -305,17 +309,22 @@ async function submitCardTry(
   answer: Record<string, unknown>,
 ): Promise<Response> {
   requireRunning(s);
-  const { pairs } = JSON.parse(s.settings) as { pairs?: unknown[] };
-  const total = pairs?.length ?? 0;
-  if (answer.ok === true && (answer.pair as number) >= total) throw new HttpError(400, 'bad_round');
-  if (answer.ok === false && ((answer.x as number) >= total || (answer.y as number) >= total)) throw new HttpError(400, 'bad_round');
+  const settings = JSON.parse(s.settings) as { pairs?: unknown[]; pieces?: number };
+  const total = s.game === 'puzzle' ? (settings.pieces ?? 0) : (settings.pairs?.length ?? 0);
+  if (s.game === 'puzzle') {
+    if ((answer.piece as number) >= total) throw new HttpError(400, 'bad_round');
+  } else if (answer.ok === true) {
+    if ((answer.pair as number) >= total) throw new HttpError(400, 'bad_round');
+  } else if ((answer.x as number) >= total || (answer.y as number) >= total) {
+    throw new HttpError(400, 'bad_round');
+  }
 
   const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM responses WHERE session_id = ?').bind(s.id).first<{ n: number }>();
   if ((count?.n ?? 0) >= MAX_RESPONSES_PER_SESSION) throw new HttpError(429, 'session_full');
 
   let round: number;
   if (answer.ok === true) {
-    round = answer.pair as number;
+    round = (s.game === 'puzzle' ? answer.piece : answer.pair) as number;
   } else {
     const last = await env.DB.prepare('SELECT COUNT(*) AS n, MAX(round) AS top FROM responses WHERE session_id = ? AND participant_id = ? AND round >= ?')
       .bind(s.id, participantId, MISTAKE_ROUND_FROM)
@@ -404,7 +413,9 @@ async function listSessions(env: Env): Promise<Response> {
 }
 
 async function createSession(env: Env, request: Request): Promise<Response> {
-  const body = await readBody<{ name?: unknown; game?: unknown; tasks?: unknown; cards?: unknown; plates?: unknown }>(request);
+  const body = await readBody<{ name?: unknown; game?: unknown; tasks?: unknown; cards?: unknown; plates?: unknown; puzzle?: unknown }>(
+    request,
+  );
   const name = cleanName(body.name);
   if (typeof body.game !== 'string' || !GAMES.includes(body.game)) throw new HttpError(400, 'bad_game');
   const settings = TASK_GAMES.includes(body.game)
@@ -415,7 +426,9 @@ async function createSession(env: Env, request: Request): Promise<Response> {
         ? { tasks: validateEvidence(body.tasks) }
         : body.game === 'plates'
           ? validatePlates(body.plates)
-          : {};
+          : body.game === 'puzzle'
+            ? validatePuzzle(body.puzzle)
+            : {};
   const id = crypto.randomUUID();
   const token = randomToken();
   await env.DB.prepare('INSERT INTO sessions (id, name, game, token_hash, settings, created_at) VALUES (?, ?, ?, ?, ?, ?)')
@@ -455,6 +468,9 @@ async function setTimer(env: Env, request: Request, id: string): Promise<Respons
     throw new HttpError(400, 'bad_timer');
   }
   const settings = JSON.parse(s.settings) as Record<string, unknown>;
+  // When the round began, for the puzzle's finishing times: more minutes keep it, a new start sets it again.
+  const running = typeof settings.endsAt === 'number' && settings.endsAt > nowSec();
+  if (seconds > 0 && !running) settings.startedAt = nowSec();
   settings.endsAt = nowSec() + seconds;
   // Where students' maps open: what the teacher's map shows.
   if (Array.isArray(center)) {
@@ -521,7 +537,7 @@ async function resetResponses(env: Env, id: string): Promise<Response> {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM responses WHERE session_id = ?').bind(id),
     // Tells students' devices to forget their progress in the game.
-    env.DB.prepare("UPDATE sessions SET settings = json_remove(json_set(settings, '$.resetAt', unixepoch()), '$.endsAt') WHERE id = ?").bind(id),
+    env.DB.prepare("UPDATE sessions SET settings = json_remove(json_set(settings, '$.resetAt', unixepoch()), '$.endsAt', '$.startedAt') WHERE id = ?").bind(id),
     bumpRev(env, id),
   ]);
   return json({ ok: true });
@@ -596,9 +612,9 @@ function restoredTasks(game: string, raw: unknown): (Task | EvidenceTask)[] {
 /** The settings a restored session keeps: the task list or the deck. The clock is not restored, and plates start again. */
 function restoredSettings(game: string, tasks: (Task | EvidenceTask)[], raw: BackupSession['settings']): object {
   if (TASK_GAMES.includes(game) || game === 'evidence') return { tasks };
-  if (game !== 'cards' && game !== 'plates') return {};
+  if (game !== 'cards' && game !== 'plates' && game !== 'puzzle') return {};
   try {
-    return game === 'plates' ? validatePlates(raw) : validateCards(raw);
+    return game === 'plates' ? validatePlates(raw) : game === 'puzzle' ? validatePuzzle(raw) : validateCards(raw);
   } catch {
     throw new HttpError(400, 'bad_backup');
   }

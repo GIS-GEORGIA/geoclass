@@ -6,6 +6,7 @@ import 'evidence.dart';
 import 'mapping.dart';
 import 'models.dart';
 import 'nicknames.dart';
+import 'puzzle.dart';
 
 String _iso(int seconds) => DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true).toIso8601String();
 
@@ -223,6 +224,16 @@ String cardsToCsv(List<CardTry> tries, int pairs, String lang) {
   final out = StringBuffer('\uFEFFnickname,pairs_found,pairs_total,wrong_tries\r\n');
   for (final r in cardsLeaderboard(tries)) {
     out.write([_csvText(nickname(r.participantId, lang)), r.found, pairs, r.mistakes].join(','));
+    out.write('\r\n');
+  }
+  return out.toString();
+}
+
+/// One row per student: pieces placed, wrong placements, and how long the whole puzzle took once finished.
+String puzzleToCsv(List<PuzzleTry> tries, int pieces, int? startedAt, String lang) {
+  final out = StringBuffer('\uFEFFnickname,pieces_placed,pieces_total,wrong_placements,seconds\r\n');
+  for (final r in puzzleLeaderboard(tries, pieces, startedAt)) {
+    out.write([_csvText(nickname(r.participantId, lang)), r.placed, pieces, r.mistakes, r.seconds ?? ''].join(','));
     out.write('\r\n');
   }
   return out.toString();

@@ -384,6 +384,90 @@ describe('mapping game', () => {
   });
 });
 
+describe('puzzle game', () => {
+  const settings = { kind: 'municipalities', area: 'ge_guria', rotation: 'quarter', help: 'frame', names: true, look: 'map', base: 'topo', seed: 7, pieces: 3 };
+
+  async function game(puzzle: unknown = settings) {
+    const res = await call('POST', 'sessions', { name: 'Puzzle', game: 'puzzle', puzzle });
+    expect(res.status).toBe(201);
+    return (await res.json()) as { session: { id: string; settings: Record<string, unknown> }; token: string };
+  }
+
+  const play = (token: string, answer: unknown, participantId = 'student-0001') =>
+    student('submit', { token, submissionId: id('sub'), participantId, answer, lat: 0, lon: 0 });
+
+  it('keeps the settings, waits for the clock, then counts each piece once and every miss', async () => {
+    const { session, token } = await game({ ...settings, extra: 'dropped' });
+    expect(session.settings).toEqual({ ...settings, rows: 0, cols: 0 });
+    expect((await play(token, { ok: true, piece: 0 })).status).toBe(409);
+    expect((await call('POST', `sessions/${session.id}/timer`, { seconds: 300 })).status).toBe(200);
+
+    expect((await play(token, { ok: false, piece: 2 })).status).toBe(201);
+    expect((await play(token, { ok: true, piece: 2 })).status).toBe(201);
+    expect(await (await play(token, { ok: true, piece: 2 })).json()).toEqual({ ok: true, duplicate: true });
+    expect((await play(token, { ok: false, piece: 1 })).status).toBe(201);
+    expect((await play(token, { ok: true, piece: 3 })).status).toBe(400);
+    expect((await play(token, { ok: true, pair: 0 })).status).toBe(400);
+
+    const { responses } = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as {
+      responses: { round: number; answer: { ok: boolean; piece: number } }[];
+    };
+    expect(responses.map((r) => [r.round, r.answer.ok, r.answer.piece])).toEqual([
+      [100, false, 2],
+      [2, true, 2],
+      [101, false, 1],
+    ]);
+  });
+
+  it('remembers when the round began, through added minutes, until a reset', async () => {
+    const { session } = await game();
+    const timer = async (seconds: number) =>
+      ((await (await call('POST', `sessions/${session.id}/timer`, { seconds })).json()) as { session: { settings: { startedAt?: number } } })
+        .session.settings.startedAt;
+    const started = await timer(300);
+    expect(started).toBeGreaterThan(0);
+    await env.DB.prepare("UPDATE sessions SET settings = json_set(settings, '$.startedAt', 5) WHERE id = ?").bind(session.id).run();
+    expect(await timer(400)).toBe(5);
+    await call('DELETE', `sessions/${session.id}/responses`);
+    const joined = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { session: { settings: Record<string, unknown> } };
+    expect(joined.session.settings.startedAt).toBeUndefined();
+  });
+
+  it('a grid has rows times columns pieces', async () => {
+    const { session } = await game({ kind: 'grid', area: 'georgia', rows: 4, cols: 6, seed: 1, pieces: 2 });
+    expect(session.settings.pieces).toBe(24);
+    expect(session.settings.rotation).toBe('none');
+  });
+
+  it('rejects a bad puzzle', async () => {
+    const bad = async (puzzle: unknown) => (await call('POST', 'sessions', { name: 'x', game: 'puzzle', puzzle })).status;
+    expect(await bad(undefined)).toBe(400);
+    expect(await bad({ ...settings, kind: 'jigsaw' })).toBe(400);
+    expect(await bad({ ...settings, kind: 'regions' })).toBe(400);
+    expect(await bad({ ...settings, area: '../x' })).toBe(400);
+    expect(await bad({ ...settings, pieces: 81 })).toBe(400);
+    expect(await bad({ ...settings, pieces: 1 })).toBe(400);
+    expect(await bad({ ...settings, seed: -1 })).toBe(400);
+    expect(await bad({ ...settings, help: 'all' })).toBe(400);
+    expect(await bad({ kind: 'grid', area: 'georgia', rows: 9, cols: 3, seed: 1 })).toBe(400);
+  });
+
+  it('survives a backup and a restore', async () => {
+    const { session, token } = await game();
+    await call('POST', `sessions/${session.id}/timer`, { seconds: 300 });
+    await play(token, { ok: true, piece: 1 });
+    const file = await (await call('GET', `backup?session=${session.id}`)).json();
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    const restored = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as {
+      session: { settings: Record<string, unknown> };
+      responses: { round: number }[];
+    };
+    expect(restored.session.settings.pieces).toBe(3);
+    expect(restored.responses.map((r) => r.round)).toEqual([1]);
+  });
+});
+
 describe('cards game', () => {
   const pairs = ['a', 'b', 'c'].map((x, i) => ({ a: `${x}-1.jpg`, b: `${x}-2.jpg`, label: `ადგილი ${i}`, ra: 0, rb: i * 90 }));
   const deck = { pairs, arrow: true, rotation: 'quarter' };
