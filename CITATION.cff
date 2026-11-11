@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "GeoClass: ინტერაქციული გეოგრაფიული თამაშები სკოლის მოსწავლეებისთვის / Interactive Geography Games for School Students"
+abstract: >-
+  Classroom geography games for students in grades 6–9: online maps,
+  coordinates, memory and map layout, played on students' own phones
+  with live results for the teacher.
+authors:
+  - family-names: Kapanadze
+    given-names: Giorgi
+    orcid: "https://orcid.org/0009-0006-4193-5939"
+    affiliation: "Business and Technology University (BTU)"
+version: 1.0.0
+date-released: 2026-11-11
+license: MIT
+repository-code: "https://github.com/GIS-GEORGIA/geoclass"
+url: "https://geoclass.qgis.ge"
+keywords:
+  - geography
+  - education
+  - classroom games
+  - maps
+  - coordinates
+  - OpenStreetMap

@@ -244,6 +244,28 @@ node tool/build_places.mjs cities15000.txt GE.txt
 - Font: Roboto, reduced to Latin, Greek, Cyrillic and punctuation (Apache 2.0, `assets/fonts/Roboto_LICENSE.txt`).
 - The cat in the settings: "Cat playing animation" by Abdul Latif, [LottieFiles](https://lottiefiles.com/free-animation/cat-playing-animation-1cwXJbHzz7), under the Lottie Simple License (`assets/lottie/LICENSE.txt`).
 
+## Citation · ციტირება
+
+**Author · ავტორი:** Giorgi Kapanadze / გიორგი კაპანაძე ([ORCID 0009-0006-4193-5939](https://orcid.org/0009-0006-4193-5939))
+**Affiliation · აფილიაცია:** Associate Professor, Business and Technology University (BTU) / ასოცირებული პროფესორი, ბიზნესისა და ტექნოლოგიების უნივერსიტეტი (BTU)
+
+GeoClass შექმნილია VI–IX კლასის მოსწავლეებისთვის, გეოგრაფიის გაკვეთილზე თამაშით სწავლისთვის. თუ მას კვლევაში, სტატიაში ან სასწავლო მასალაში იყენებთ, გთხოვთ, მიუთითოთ. GitHub-ის „Cite this repository“ ღილაკი (`CITATION.cff`) APA და BibTeX ფორმატებს ავტომატურად გასცემს. იგივე ტექსტი აპშიც არის: პარამეტრები → ციტირება.
+
+If you use GeoClass in research, a paper or teaching materials, please cite it. GitHub's "Cite this repository" button (`CITATION.cff`) gives a ready-made APA or BibTeX entry. The app shows the same under Settings → How to cite.
+
+```bibtex
+@software{kapanadze_geoclass_2026,
+  author      = {Kapanadze, Giorgi},
+  title       = {{GeoClass}: ინტერაქციული გეოგრაფიული თამაშები სკოლის მოსწავლეებისთვის / {Interactive Geography Games for School Students}},
+  year        = {2026},
+  version     = {1.0.0},
+  institution = {{Business and Technology University (BTU)}},
+  url         = {https://github.com/GIS-GEORGIA/geoclass}
+}
+```
+
+Kapanadze, G. (2026). GeoClass: ინტერაქციული გეოგრაფიული თამაშები სკოლის მოსწავლეებისთვის / Interactive Geography Games for School Students (Version 1.0.0) [Computer software]. Business and Technology University (BTU). https://github.com/GIS-GEORGIA/geoclass
+
 ## License
 
 MIT

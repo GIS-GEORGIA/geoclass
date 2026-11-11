@@ -6,6 +6,7 @@ import 'package:lottie/lottie.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
+import 'citation.dart';
 import 'files.dart';
 import 'l10n.dart';
 import 'settings.dart';
@@ -138,6 +139,12 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 8),
                   Text(s['about_author'], style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 8),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.format_quote),
+                    title: Text(s['cite_title']),
+                    onTap: () => showCitation(context, s),
+                  ),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.privacy_tip_outlined),
