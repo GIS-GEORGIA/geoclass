@@ -13,9 +13,10 @@ void main() {
     expect(cff, contains('version: $version'));
     expect(citationApa, contains('Version $version'));
     expect(citationBibtex, contains('version     = {$version}'));
+    expect(cff, contains('https://github.com/GIS-GEORGIA/geoclass'));
     for (final text in [cff, citationApa, citationBibtex]) {
       expect(text, contains('Kapanadze'));
-      expect(text, contains('https://github.com/GIS-GEORGIA/geoclass'));
+      expect(text, contains('10.5281/zenodo.24144115'));
     }
   });
 }

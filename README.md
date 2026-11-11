@@ -1,5 +1,7 @@
 # GeoClass
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24144115.svg)](https://doi.org/10.5281/zenodo.24144115) [![Release](https://img.shields.io/github/v/release/GIS-GEORGIA/geoclass)](https://github.com/GIS-GEORGIA/geoclass/releases) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Classroom geography games. The teacher shows a QR code, students answer anonymously on their phones, and the answers appear live on a map.
 
 საკლასო გეოგრაფიული თამაშები. მასწავლებელი აჩვენებს QR კოდს, მოსწავლეები ტელეფონიდან ანონიმურად პასუხობენ, პასუხები კი პირდაპირ რუკაზე ჩნდება.
@@ -10,7 +12,7 @@ GeoClass არის გეოგრაფიის საკლასო თ�
 
 **Idea and development / იდეა და შემუშავება:** Giorgi Kapanadze, Associate Professor at the Business and Technology University (BTU) / გიორგი კაპანაძე, ბიზნესისა და ტექნოლოგიების უნივერსიტეტის (BTU) ასოცირებული პროფესორი.
 
-**Status:** The travel, coordinates, aerial photo, coordinate detective, mapping, cards, colour plates, map puzzle and map layout games work from QR code to live map. Live at https://geoclass.qgis.ge. The Android build is ready to publish, see [docs/play-store.md](docs/play-store.md).
+**Status:** Nine games work from QR code to live map: travel, coordinates, aerial photo, mapping race, cards, coordinate detective, colour plates, map puzzle and map layout. Live at https://geoclass.qgis.ge. Version 1.0.0 is [released](https://github.com/GIS-GEORGIA/geoclass/releases/tag/v1.0.0) and archived on Zenodo ([10.5281/zenodo.24144115](https://doi.org/10.5281/zenodo.24144115)). The Android build is ready to publish, see [docs/play-store.md](docs/play-store.md).
 
 | Stage | Contents | Status |
 |---|---|---|
@@ -19,6 +21,31 @@ GeoClass არის გეოგრაფიის საკლასო თ�
 | 3 | Aerial photo guessing game, from our own photos | Done |
 | 4 | Android release build for Google Play | Built, not published |
 | 5 | Mapping race: draw points, lines and polygons against a clock the teacher sets | Done |
+| 6 | Cards game: find pairs of map cards against a clock | Done |
+| 7 | Coordinate detective: read coordinates from a training picture, convert them, find and name the place | Done |
+| 8 | Colour plates, with Georgia's regions and municipalities | Done |
+| 9 | Privacy: ⓘ dialog, sessions deleted after 6 months, students erase their own answers | Done |
+| 10 | Map puzzle: regions, municipalities or a jigsaw of the live map | Done |
+| 11 | Map layout: colour by a legend, lay out the sheet, print an A4 PDF | Done |
+| 12 | About text, citation (`CITATION.cff`, in-app dialog), release 1.0.0 with a Zenodo DOI | Done |
+
+## Games
+
+Every game runs as a session: the teacher creates it, shows the QR code, and students join on their own phones with no account. The teacher's screen fills in live.
+
+| Game | What students do | What it practises |
+|---|---|---|
+| Where would you travel? | Put a point on the map and say why | Finding places on an online map, zoom and layers |
+| Coordinates game | Find a place from its coordinates, or read the coordinates of a place | DD, DM, DMS and UTM; latitude and longitude |
+| Aerial photo | Guess where a photo from above was taken | Reading the landscape, matching a photo to a map |
+| Mapping race | Draw points, lines and polygons before the clock runs out | Drawing on a map, working against time |
+| Cards | Find pairs of map cards that show the same place | Visual memory, recognising places |
+| Coordinate detective | Read coordinates from a training picture, write them in another format, find the place and name it | Converting coordinates, careful reading, step-by-step reasoning |
+| Colour plates | Find the region, country or continent hidden in a plate of coloured dots; the class answers aloud | Recognising shapes; why map colours matter for people who see colour differently |
+| Map puzzle | Put Georgia together from its regions or municipalities | The shapes and positions of regions and municipalities |
+| Map layout | Colour the units by a legend, place title, north arrow, legend, scale and grid, print on A4 | The parts of a map, scale, grids and care with detail |
+
+All games teach working alone on a small problem and talking the results over with the class.
 
 ## Features
 
@@ -30,6 +57,19 @@ GeoClass არის გეოგრაფიის საკლასო თ�
 - Place search bundled with the app, so searching calls no outside service
 - Hide or delete an answer before the class sees it
 - CSV, GeoJSON and JSON export, restore from backup, and reset per session
+- A clock the teacher starts for timed games (mapping race, cards, map puzzle), and leaderboards by random nicknames
+- Coordinate converter for students (DD, DM, DMS, UTM 37N/38N), which the teacher can turn off per task
+- A4 PDF of a map layout sheet, made on the device
+- Privacy ⓘ dialog on every page; sessions deleted after 6 months
+- About text and a citation dialog (APA and BibTeX) in the settings
+
+## The travel game
+
+Students answer "Where would you travel?" by putting a point on the map and writing a short reason. The points appear on the teacher's map at once, in clusters when many are close. The teacher can hide or delete an answer before showing the map to the class.
+
+## The mapping race
+
+The teacher sets the task and a clock. Students draw points, lines or polygons on the map, for example their neighbourhood, before the time runs out. The drawings come together on the teacher's map and can be exported as GeoJSON.
 
 ## The coordinates game
 
@@ -180,7 +220,7 @@ Needs Flutter and Node.js.
 
 ```bash
 flutter pub get
-flutter build web --release --no-web-resources-cdn --base-href /
+flutter build web --release --no-web-resources-cdn --no-wasm-dry-run --base-href /
 cd worker
 npm install
 npm run key
@@ -221,11 +261,11 @@ Put the printed id into `database_id` in `wrangler.jsonc`, then:
 ```bash
 npx wrangler d1 migrations apply geoclass --remote
 npx wrangler secret put TEACHER_KEY_HASH
-flutter build web --release --no-web-resources-cdn --base-href /
+flutter build web --release --no-web-resources-cdn --no-wasm-dry-run --base-href /
 npx wrangler deploy
 ```
 
-Run the `flutter build` line from the repository root. Native apps use `https://geoclass.qgis.ge` unless built with `--dart-define=API_BASE=<url>`.
+Run the `flutter build` line from the repository root. The migrations in `worker/migrations` (0001 to 0009) add one game each; before applying a new one to the live database, keep a copy with `npx wrangler d1 export geoclass --remote --output <file>.sql`. Native apps use `https://geoclass.qgis.ge` unless built with `--dart-define=API_BASE=<url>`.
 
 ## Rebuilding the place data
 
@@ -259,12 +299,14 @@ If you use GeoClass in research, a paper or teaching materials, please cite it. 
   title       = {{GeoClass}: ინტერაქციული გეოგრაფიული თამაშები სკოლის მოსწავლეებისთვის / {Interactive Geography Games for School Students}},
   year        = {2026},
   version     = {1.0.0},
+  publisher   = {Zenodo},
   institution = {{Business and Technology University (BTU)}},
-  url         = {https://github.com/GIS-GEORGIA/geoclass}
+  doi         = {10.5281/zenodo.24144115},
+  url         = {https://doi.org/10.5281/zenodo.24144115}
 }
 ```
 
-Kapanadze, G. (2026). GeoClass: ინტერაქციული გეოგრაფიული თამაშები სკოლის მოსწავლეებისთვის / Interactive Geography Games for School Students (Version 1.0.0) [Computer software]. Business and Technology University (BTU). https://github.com/GIS-GEORGIA/geoclass
+Kapanadze, G. (2026). GeoClass: ინტერაქციული გეოგრაფიული თამაშები სკოლის მოსწავლეებისთვის / Interactive Geography Games for School Students (Version 1.0.0) [Computer software]. Zenodo. Business and Technology University (BTU). https://doi.org/10.5281/zenodo.24144115
 
 ## License
 

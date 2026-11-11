@@ -14,6 +14,11 @@ authors:
 version: 1.0.0
 date-released: 2026-11-11
 license: MIT
+doi: 10.5281/zenodo.24144115
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.24144115
+    description: "All versions (concept DOI)"
 repository-code: "https://github.com/GIS-GEORGIA/geoclass"
 url: "https://geoclass.qgis.ge"
 keywords:

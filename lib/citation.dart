@@ -8,15 +8,17 @@ const authorOrcid = 'https://orcid.org/0009-0006-4193-5939';
 /// How to cite GeoClass. Kept in step with CITATION.cff at the repository root.
 const citationApa =
     'Kapanadze, G. (2026). GeoClass: ინტერაქციული გეოგრაფიული თამაშები სკოლის მოსწავლეებისთვის / Interactive Geography Games for School Students (Version 1.0.0) [Computer software]. '
-    'Business and Technology University (BTU). https://github.com/GIS-GEORGIA/geoclass';
+    'Zenodo. Business and Technology University (BTU). https://doi.org/10.5281/zenodo.24144115';
 
 const citationBibtex = '''@software{kapanadze_geoclass_2026,
   author      = {Kapanadze, Giorgi},
   title       = {{GeoClass}: ინტერაქციული გეოგრაფიული თამაშები სკოლის მოსწავლეებისთვის / {Interactive Geography Games for School Students}},
   year        = {2026},
   version     = {1.0.0},
+  publisher   = {Zenodo},
   institution = {{Business and Technology University (BTU)}},
-  url         = {https://github.com/GIS-GEORGIA/geoclass}
+  doi         = {10.5281/zenodo.24144115},
+  url         = {https://doi.org/10.5281/zenodo.24144115}
 }''';
 
 /// Shows both citation formats, each with a copy button.
