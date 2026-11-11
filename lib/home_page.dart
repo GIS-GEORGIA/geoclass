@@ -151,6 +151,8 @@ class _KeyPageState extends State<_KeyPage> {
               shrinkWrap: true,
               padding: const EdgeInsets.all(24),
               children: [
+                Text(s['tagline'], style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.primary)),
+                const SizedBox(height: 16),
                 Text(s['key_title'], style: Theme.of(context).textTheme.headlineSmall),
                 const SizedBox(height: 8),
                 Text(s['key_hint']),

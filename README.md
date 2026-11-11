@@ -4,6 +4,12 @@ Classroom geography games. The teacher shows a QR code, students answer anonymou
 
 საკლასო გეოგრაფიული თამაშები. მასწავლებელი აჩვენებს QR კოდს, მოსწავლეები ტელეფონიდან ანონიმურად პასუხობენ, პასუხები კი პირდაპირ რუკაზე ჩნდება.
 
+GeoClass is a set of classroom geography games for students in grades 6–9. Students play on their own phones during the lesson, get used to online maps, learn the different ways of writing coordinates and train their memory, while the teacher sees the results at once and the class talks them over together.
+
+GeoClass არის გეოგრაფიის საკლასო თამაშების კრებული VI–IX კლასის მოსწავლეებისთვის. მოსწავლეები გაკვეთილზე საკუთარ ტელეფონზე თამაშობენ, ეჩვევიან ონლაინ რუკებთან მუშაობას, სწავლობენ კოორდინატების სხვადასხვა ფორმას და ავარჯიშებენ მეხსიერებას. მასწავლებელი შედეგებს მაშინვე ხედავს და ისინი კლასთან ერთად განიხილება.
+
+**Idea and development / იდეა და შემუშავება:** Giorgi Kapanadze, Associate Professor at the Business and Technology University (BTU) / გიორგი კაპანაძე, ბიზნესისა და ტექნოლოგიების უნივერსიტეტის (BTU) ასოცირებული პროფესორი.
+
 **Status:** The travel, coordinates, aerial photo, coordinate detective, mapping, cards, colour plates, map puzzle and map layout games work from QR code to live map. Live at https://geoclass.qgis.ge. The Android build is ready to publish, see [docs/play-store.md](docs/play-store.md).
 
 | Stage | Contents | Status |

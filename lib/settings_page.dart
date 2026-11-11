@@ -134,6 +134,10 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                   ],
                   _title(s['about']),
+                  Text(s['about_text']),
+                  const SizedBox(height: 8),
+                  Text(s['about_author'], style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.privacy_tip_outlined),
