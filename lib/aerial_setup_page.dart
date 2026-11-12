@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import 'answer_mode.dart';
 import 'api.dart';
 import 'l10n.dart';
 import 'models.dart';
@@ -11,7 +12,8 @@ const _maxTasks = 30;
 
 CoordTask taskFromPhoto(Photo p) => CoordTask(lat: p.lat, lon: p.lon, mode: 'photo', format: 'dd', label: p.ka, labelEn: p.en, photo: p.file);
 
-/// The teacher picks which photos the class guesses. Returns the tasks in a random order.
+/// The teacher picks which photos the class guesses. Returns the tasks in a random order, and whether the
+/// answers are checked on the students' devices (offline) instead of the server.
 class AerialSetupPage extends StatefulWidget {
   final S s;
   final String lang;
@@ -24,6 +26,7 @@ class _AerialSetupPageState extends State<AerialSetupPage> {
   List<Photo>? _photos;
   bool _failed = false;
   Set<String> _chosen = {};
+  bool _offline = false;
 
   S get s => widget.s;
 
@@ -63,7 +66,7 @@ class _AerialSetupPageState extends State<AerialSetupPage> {
       for (final p in _photos!)
         if (_chosen.contains(p.file)) taskFromPhoto(p),
     ]..shuffle(Random());
-    Navigator.pop(context, tasks);
+    Navigator.pop(context, (tasks, _offline));
   }
 
   Widget _message(String text) => Center(
@@ -105,6 +108,8 @@ class _AerialSetupPageState extends State<AerialSetupPage> {
                                 ),
                               ],
                             ),
+                            const SizedBox(height: 8),
+                            OfflineAnswersSwitch(s: s, value: _offline, onChanged: (v) => setState(() => _offline = v)),
                             const SizedBox(height: 8),
                             for (final p in photos)
                               CheckboxListTile(

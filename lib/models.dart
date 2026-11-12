@@ -88,6 +88,9 @@ class CoordTask {
   final String label, labelEn;
   final String photo; // aerial game: a file in web/aerial
 
+  /// The point and the name stayed on the server (online answers): the result comes from the server after answering.
+  final bool secret;
+
   const CoordTask({
     required this.lat,
     required this.lon,
@@ -96,18 +99,20 @@ class CoordTask {
     this.label = '',
     this.labelEn = '',
     this.photo = '',
+    this.secret = false,
   });
 
   String labelFor(String lang) => lang == 'en' && labelEn.isNotEmpty ? labelEn : label;
 
   factory CoordTask.fromJson(Map<String, dynamic> j) => CoordTask(
-        lat: (j['lat'] as num).toDouble(),
-        lon: (j['lon'] as num).toDouble(),
+        lat: (j['lat'] as num? ?? 0).toDouble(),
+        lon: (j['lon'] as num? ?? 0).toDouble(),
         mode: j['mode'] as String,
         format: j['format'] as String,
         label: j['label'] as String? ?? '',
         labelEn: j['labelEn'] as String? ?? '',
         photo: j['photo'] as String? ?? '',
+        secret: j['lat'] == null,
       );
 
   Map<String, dynamic> toJson() => {

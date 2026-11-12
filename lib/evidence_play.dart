@@ -46,13 +46,16 @@ class _Result {
   final EvidenceTask task;
   final LatLng? typed, pin;
   final String raw, name;
-  final Map<String, int> scores;
-  const _Result(this.task, this.typed, this.pin, this.raw, this.name, this.scores);
+  final Map<String, int> scores; // a name checked only on the server has no score here until it gets through
+  final String right; // the accepted name, from the task or the server's reply
+  const _Result(this.task, this.typed, this.pin, this.raw, this.name, this.scores, {this.right = ''});
   int get total => scores.values.fold(0, (a, b) => a + b);
 }
 
 class _EvidencePlayState extends State<EvidencePlay> {
-  late final _queue = SubmissionQueue(widget.api.submit);
+  late final _queue = SubmissionQueue(widget.api.submit, onReply: _onReply);
+  // The server's replies to name answers by submission id, until the answer they belong to takes its own.
+  final _replies = <String, Map<String, dynamic>>{};
   final _boxes = List.generate(6, (_) => TextEditingController());
   final _name = TextEditingController();
   Timer? _retry;
@@ -113,12 +116,27 @@ class _EvidencePlayState extends State<EvidencePlay> {
     jsonEncode({'round': _round, 'answered': _answered.toList(), 'total': _total, 'resetAt': widget.resetAt}),
   );
 
+  void _onReply(Map<String, dynamic> item, Map<String, dynamic> reply) {
+    final named = (item['answer'] as Map?)?['q'] == 'name';
+    if (item['token'] == widget.token && named) _replies[item['submissionId'] as String] = reply;
+  }
+
   /// Returns true unless the session stopped accepting answers.
-  Future<bool> _send() async {
+  /// [waiting] is the name answer whose result is shown now. Names checked only on the server and sent later,
+  /// after a lost connection, add their score to the total here.
+  Future<bool> _send({String? waiting}) async {
     _retry?.cancel();
     final refused = await _queue.flush();
     final pending = await _queue.pending();
     if (!mounted) return false;
+    var late = 0;
+    for (final id in _replies.keys.where((id) => id != waiting).toList()) {
+      late += (_replies.remove(id)!['score'] as num? ?? 0).toInt();
+    }
+    if (late > 0) {
+      setState(() => _total += late);
+      _saveProgress();
+    }
     if (refused == 'session_paused' || refused == 'session_closed') {
       widget.onStopped(refused!.replaceFirst('session_', ''));
       return false;
@@ -174,19 +192,28 @@ class _EvidencePlayState extends State<EvidencePlay> {
     };
     if (typed != null) await _queue.add(submission({'q': 'coords', 'raw': raw, 'format': task.ask}, typed));
     if (task.asks('map')) await _queue.add(submission({'q': 'map'}, _pin));
-    if (task.asks('name')) await _queue.add(submission({'q': 'name', 'name': name}, null));
+    final named = task.asks('name') ? submission({'q': 'name', 'name': name}, null) : null;
+    if (named != null) await _queue.add(named);
     // The result shows only after sending, so a paused session can't reveal the answer.
-    final accepted = await _send();
+    final accepted = await _send(waiting: named?['submissionId'] as String?);
     if (!mounted) return;
     _busy = false;
     if (!accepted) return;
 
+    // The picture shows the coordinates, so those are scored here. The accepted names may have stayed on the
+    // server (online answers): then the name's score comes from its reply, or later if it is still waiting.
+    final reply = named == null ? null : _replies.remove(named['submissionId']);
+    final served = reply?['score'] as num?;
+    final nameScore = served != null
+        ? served.toInt()
+        : (named != null && task.names.isNotEmpty ? (nameMatches(task, name) ? 100 : 0) : null);
     final scores = <String, int>{
       if (typed != null) 'coords': strictScoreFor(distanceM(typed.latitude, typed.longitude, task.lat, task.lon)),
       if (task.asks('map')) 'map': scoreFor(distanceM(_pin!.latitude, _pin!.longitude, task.lat, task.lon)),
-      if (task.asks('name')) 'name': nameMatches(task, name) ? 100 : 0,
+      'name': ?nameScore,
     };
-    final result = _Result(task, typed, _pin, raw, name, scores);
+    final right = reply?['right'] as String? ?? (task.names.isEmpty ? '' : task.names.first);
+    final result = _Result(task, typed, _pin, raw, name, scores, right: right);
     setState(() {
       _resultMap?.dispose();
       _resultMap = MapController();
@@ -424,8 +451,10 @@ class _EvidencePlayState extends State<EvidencePlay> {
           r.scores['map']!,
           s.f('result_distance', [formatDistance(distanceM(r.pin!.latitude, r.pin!.longitude, task.lat, task.lon))]),
         ),
-      if (task.asks('name'))
-        _scoreLine(s['ev_r_name'], r.scores['name']!, '${s.f('ev_r_typed', [r.name])}\n${s.f('ev_r_right', [task.names.first])}'),
+      if (task.asks('name') && r.scores['name'] != null)
+        _scoreLine(s['ev_r_name'], r.scores['name']!, '${s.f('ev_r_typed', [r.name])}\n${s.f('ev_r_right', [r.right])}')
+      else if (task.asks('name'))
+        Card(child: ListTile(leading: const Icon(Icons.schedule), title: Text(s['ev_r_name']), subtitle: Text(s['play_checked_later']))),
       if (r.total < 100 * r.scores.length)
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),

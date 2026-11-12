@@ -44,11 +44,17 @@ class _Result {
   final CoordTask task;
   final double lat, lon, distance;
   final int score;
-  const _Result(this.task, this.lat, this.lon, this.distance, this.score);
+  final double targetLat, targetLon; // the right point: the task's own, or from the server's reply
+  final String label, labelEn;
+  const _Result(this.task, this.lat, this.lon, this.distance, this.score,
+      {required this.targetLat, required this.targetLon, this.label = '', this.labelEn = ''});
+  String labelFor(String lang) => lang == 'en' && labelEn.isNotEmpty ? labelEn : label;
 }
 
 class _CoordinatesPlayState extends State<CoordinatesPlay> {
-  late final _queue = SubmissionQueue(widget.api.submit);
+  late final _queue = SubmissionQueue(widget.api.submit, onReply: _onReply);
+  // The server's replies by submission id, until the answer they belong to takes its own.
+  final _replies = <String, (int, Map<String, dynamic>)>{};
   // The boxes of the answer frame. joinBoxes says what each one holds in each format.
   final _boxes = List.generate(6, (_) => TextEditingController());
   final _map = MapController();
@@ -114,12 +120,27 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
   Future<void> _saveProgress() async => (await SharedPreferences.getInstance())
       .setString(_progressKey, jsonEncode({'round': _round, 'answered': _answered.toList(), 'total': _total, 'resetAt': widget.resetAt}));
 
+  void _onReply(Map<String, dynamic> item, Map<String, dynamic> reply) {
+    if (item['token'] == widget.token) _replies[item['submissionId'] as String] = (item['round'] as int, reply);
+  }
+
   /// Returns true unless the session stopped accepting answers.
-  Future<bool> _send() async {
+  /// [waiting] is the answer whose result is shown now; the scores of answers sent later, after a lost
+  /// connection, are added to the total here.
+  Future<bool> _send({String? waiting}) async {
     _retry?.cancel();
     final refused = await _queue.flush();
     final pending = await _queue.pending();
     if (!mounted) return false;
+    var late = 0;
+    for (final id in _replies.keys.where((id) => id != waiting).toList()) {
+      final (round, reply) = _replies.remove(id)!;
+      if (round < widget.tasks.length && widget.tasks[round].secret) late += (reply['score'] as num? ?? 0).toInt();
+    }
+    if (late > 0) {
+      setState(() => _total += late);
+      _saveProgress();
+    }
     if (refused == 'session_paused' || refused == 'session_closed') {
       widget.onStopped(refused!.replaceFirst('session_', ''));
       return false;
@@ -162,9 +183,10 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
       _busy = true;
       _error = null;
     });
+    final submissionId = randomId();
     await _queue.add({
       'token': widget.token,
-      'submissionId': randomId(),
+      'submissionId': submissionId,
       'participantId': _participant,
       'round': _round,
       'answer': {'raw': raw, 'format': task.format, 'mode': task.mode},
@@ -172,16 +194,39 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
       'lon': point.longitude,
     });
     // The result shows only after sending, so a paused session can't reveal the answer.
-    final accepted = await _send();
+    final accepted = await _send(waiting: submissionId);
     if (!mounted) return;
     _busy = false;
     if (!accepted) return;
 
-    final distance = distanceM(point.latitude, point.longitude, task.lat, task.lon);
-    final score = scoreFor(distance);
+    // The server's result when there is one. Without it, a task that came with its answer is scored here;
+    // one whose answer stayed on the server is scored once the answer gets through.
+    final reply = _replies.remove(submissionId)?.$2;
+    final target = reply?['target'] as Map<String, dynamic>?;
+    _Result? result;
+    if (reply != null && target != null) {
+      result = _Result(
+        task,
+        point.latitude,
+        point.longitude,
+        (reply['distanceM'] as num).toDouble(),
+        (reply['score'] as num).toInt(),
+        targetLat: (target['lat'] as num).toDouble(),
+        targetLon: (target['lon'] as num).toDouble(),
+        label: target['label'] as String? ?? '',
+        labelEn: target['labelEn'] as String? ?? '',
+      );
+    } else if (!task.secret) {
+      final distance = distanceM(point.latitude, point.longitude, task.lat, task.lon);
+      result = _Result(task, point.latitude, point.longitude, distance, scoreFor(distance),
+          targetLat: task.lat, targetLon: task.lon, label: task.label, labelEn: task.labelEn);
+    }
+    if (result == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(s['play_checked_later'])));
+    }
     setState(() {
-      _result = _Result(task, point!.latitude, point.longitude, distance, score);
-      _total += score;
+      _result = result;
+      _total += result?.score ?? 0;
       _answered.add(_round);
       _round = _nextOpen();
     });
@@ -409,13 +454,13 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
   Widget _resultView(_Result r) {
     final text = Theme.of(context).textTheme;
     final task = r.task;
-    final target = LatLng(task.lat, task.lon);
+    final target = LatLng(r.targetLat, r.targetLon);
     final yours = LatLng(r.lat, r.lon);
     return _page([
       Text(s.f('result_score', [r.score]), style: text.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
       const SizedBox(height: 4),
       Text(s.f('result_distance', [formatDistance(r.distance)]), style: text.titleMedium),
-      if (task.label.isNotEmpty) Text(s.f('result_was', [task.labelFor(widget.lang)]), style: text.titleMedium),
+      if (r.label.isNotEmpty) Text(s.f('result_was', [r.labelFor(widget.lang)]), style: text.titleMedium),
       const SizedBox(height: 12),
       if (task.photo.isNotEmpty) ...[
         TaskPhoto(s: s, file: task.photo, height: 180),
@@ -466,7 +511,7 @@ class _CoordinatesPlayState extends State<CoordinatesPlay> {
       const SizedBox(height: 12),
       _coordinates(s['result_yours'], r.lat, r.lon, Icons.location_pin),
       const SizedBox(height: 8),
-      _coordinates(s['result_target'], task.lat, task.lon, Icons.star),
+      _coordinates(s['result_target'], r.targetLat, r.targetLon, Icons.star),
       if (_error != null)
         Padding(
           padding: const EdgeInsets.only(top: 8),

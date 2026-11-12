@@ -1005,6 +1005,127 @@ describe('evidence game', () => {
   });
 });
 
+describe('protected answers', () => {
+  const aerial = [
+    { lat: 41.7, lon: 44.8, photo: 'p01.jpg', label: 'თბილისი', labelEn: 'Tbilisi' },
+    { lat: 42.27, lon: 42.7, photo: 'p02.webp', label: 'ქუთაისი', labelEn: 'Kutaisi' },
+  ];
+  const evidence = [
+    { kind: 'receipt', lat: 41.6938, lon: 44.8015, shown: 'dms', ask: 'dd', questions: ['coords', 'map', 'name'], names: ['თავისუფლების მოედანი', 'Freedom Square'], converter: true, seed: 7 },
+  ];
+  const create = async (game: string, tasks: unknown, answers?: string) => {
+    const res = await call('POST', 'sessions', { name: 'x', game, tasks, ...(answers ? { answers } : {}) });
+    expect(res.status).toBe(201);
+    return (await res.json()) as { session: { id: string; settings: Record<string, unknown> }; token: string };
+  };
+  const join = async (token: string) => {
+    const res = await student('join', { token });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    return { text, data: JSON.parse(text) as { settings: { answers?: string; tasks: Record<string, unknown>[] } } };
+  };
+  // A session made before the answer mode existed.
+  const makeLegacy = (id: string) => env.DB.prepare("UPDATE sessions SET settings = json_remove(settings, '$.answers') WHERE id = ?").bind(id).run();
+
+  it('online is the default and the teacher still sees everything', async () => {
+    const { session } = await create('aerial', aerial);
+    expect(session.settings.answers).toBe('online');
+    expect((session.settings.tasks as Record<string, unknown>[])[0].label).toBe('თბილისი');
+    expect((await create('evidence', evidence)).session.settings.answers).toBe('online');
+  });
+
+  it('refuses an unknown answer mode', async () => {
+    expect((await call('POST', 'sessions', { name: 'x', game: 'aerial', tasks: aerial, answers: 'maybe' })).status).toBe(400);
+  });
+
+  it('aerial online: the join response has no point and no place name', async () => {
+    const { token } = await create('aerial', aerial);
+    const { text, data } = await join(token);
+    expect(data.settings.tasks).toEqual([
+      { mode: 'photo', format: 'dd', photo: 'p01.jpg' },
+      { mode: 'photo', format: 'dd', photo: 'p02.webp' },
+    ]);
+    for (const secret of ['თბილისი', 'Tbilisi', 'ქუთაისი', 'Kutaisi', '41.7', '44.8', '42.27', '42.7']) expect(text).not.toContain(secret);
+  });
+
+  it('evidence online: the join response has no accepted names', async () => {
+    const { token } = await create('evidence', evidence);
+    const { text, data } = await join(token);
+    expect(data.settings.tasks[0]).not.toHaveProperty('names');
+    expect(data.settings.tasks[0]).toMatchObject({ kind: 'receipt', lat: 41.6938, lon: 44.8015, questions: ['coords', 'map', 'name'], seed: 7 });
+    for (const secret of ['თავისუფლების', 'Freedom']) expect(text).not.toContain(secret);
+  });
+
+  it('offline mode, chosen by the teacher, sends the answers for scoring on the device', async () => {
+    const a = await join((await create('aerial', aerial, 'offline')).token);
+    expect(a.data.settings.tasks[0]).toMatchObject({ lat: 41.7, lon: 44.8, label: 'თბილისი' });
+    const e = await join((await create('evidence', evidence, 'offline')).token);
+    expect(e.data.settings.tasks[0].names).toEqual(['თავისუფლების მოედანი', 'Freedom Square']);
+  });
+
+  it('a session from before the choice keeps working as it did', async () => {
+    for (const [game, tasks] of [['aerial', aerial], ['evidence', evidence]] as const) {
+      const { session, token } = await create(game, tasks);
+      await makeLegacy(session.id);
+      const { data } = await join(token);
+      expect(data.settings.answers).toBeUndefined();
+      expect(data.settings.tasks[0]).toHaveProperty(game === 'aerial' ? 'label' : 'names');
+    }
+  });
+
+  it('aerial: the result comes from the server, and only the first try counts', async () => {
+    const { token } = await create('aerial', aerial);
+    const submissionId = id('sub');
+    const body = { token, submissionId, participantId: 'protected-0001', round: 0, answer: {}, lat: 41.79, lon: 44.8 };
+    const res = await student('submit', body);
+    expect(res.status).toBe(201);
+    const first = (await res.json()) as { score: number; distanceM: number; target: Record<string, unknown> };
+    expect(first.score).toBe(50);
+    expect(Math.round(first.distanceM / 100)).toBe(100);
+    expect(first.target).toEqual({ lat: 41.7, lon: 44.8, label: 'თბილისი', labelEn: 'Tbilisi' });
+    // A retry of the same answer, after a lost connection, gets the same result.
+    const retry = (await (await student('submit', body)).json()) as { duplicate: boolean; score: number };
+    expect(retry).toMatchObject({ duplicate: true, score: 50 });
+    // A better second try is not counted, and the reply says so.
+    const second = (await (await student('submit', { ...body, submissionId: id('sub'), lat: 41.7 })).json()) as { duplicate: boolean; score: number };
+    expect(second).toMatchObject({ duplicate: true, score: 50 });
+  });
+
+  it('evidence: trying other names after a wrong one does not tell which is right', async () => {
+    const { token } = await create('evidence', evidence);
+    const body = { token, participantId: 'protected-0002', round: 0, lat: 0, lon: 0 };
+    const wrong = (await (await student('submit', { ...body, submissionId: id('sub'), answer: { q: 'name', name: 'Rustaveli' } })).json()) as Record<string, unknown>;
+    expect(wrong).toMatchObject({ score: 0, right: 'თავისუფლების მოედანი' });
+    const again = (await (await student('submit', { ...body, submissionId: id('sub'), answer: { q: 'name', name: 'Freedom Square' } })).json()) as Record<string, unknown>;
+    expect(again).toMatchObject({ duplicate: true, score: 0 });
+    const map = (await (await student('submit', { ...body, submissionId: id('sub'), answer: { q: 'map' }, lat: 41.6938, lon: 44.8015 })).json()) as Record<string, unknown>;
+    expect(map).toMatchObject({ score: 100 });
+    expect(map).not.toHaveProperty('right');
+  });
+
+  it('backup and restore keep the answer mode; an old backup stays offline', async () => {
+    const { session } = await create('aerial', aerial);
+    const mode = async () =>
+      ((await (await call('GET', `sessions/${session.id}/responses`)).json()) as { session: { settings: { answers?: string } } }).session.settings.answers;
+    const backup = (await (await call('GET', `backup?session=${session.id}`)).json()) as { sessions: { settings: Record<string, unknown> }[] };
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', backup)).status).toBe(200);
+    expect(await mode()).toBe('online');
+
+    delete backup.sessions[0].settings.answers;
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', backup)).status).toBe(200);
+    expect(await mode()).toBeUndefined();
+  });
+
+  it('other games are not changed', async () => {
+    const { token } = await create('coordinates', [{ lat: 41.7, lon: 44.8, mode: 'to_map', format: 'dd', label: 'x' }]);
+    const { data } = await join(token);
+    expect(data.settings.answers).toBeUndefined();
+    expect(data.settings.tasks[0]).toMatchObject({ lat: 41.7, lon: 44.8 });
+  });
+});
+
 describe('paths outside the API', () => {
   it('answer 404 without asking for a key', async () => {
     expect((await call('GET', '../aerial/missing.jpg', undefined, {})).status).toBe(404);

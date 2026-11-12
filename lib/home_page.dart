@@ -276,6 +276,7 @@ class _SessionListState extends State<_SessionList> {
     List<PlateSpec>? plates;
     PuzzleSpec? puzzle;
     LayoutSpec? layout;
+    bool? offline; // aerial and evidence: answers checked on the devices instead of the server
     if (game == 'layout') {
       layout = await Navigator.of(context).push<LayoutSpec>(MaterialPageRoute(
         builder: (_) => LayoutSetupPage(s: s, lang: widget.settings.lang),
@@ -292,10 +293,11 @@ class _SessionListState extends State<_SessionList> {
       ));
       if (plates == null) return;
     } else if (game == 'evidence') {
-      evidence = await Navigator.of(context).push<List<EvidenceTask>>(MaterialPageRoute(
+      final picked = await Navigator.of(context).push<(List<EvidenceTask>, bool)>(MaterialPageRoute(
         builder: (_) => EvidenceSetupPage(s: s),
       ));
-      if (evidence == null) return;
+      if (picked == null) return;
+      (evidence, offline) = picked;
     } else if (game == 'cards') {
       deck = await Navigator.of(context).push<Deck>(MaterialPageRoute(
         builder: (_) => CardsSetupPage(s: s, lang: widget.settings.lang),
@@ -307,10 +309,11 @@ class _SessionListState extends State<_SessionList> {
       ));
       if (tasks == null) return;
     } else if (game == 'aerial') {
-      tasks = await Navigator.of(context).push<List<CoordTask>>(MaterialPageRoute(
+      final picked = await Navigator.of(context).push<(List<CoordTask>, bool)>(MaterialPageRoute(
         builder: (_) => AerialSetupPage(s: s, lang: widget.settings.lang),
       ));
-      if (tasks == null) return;
+      if (picked == null) return;
+      (tasks, offline) = picked;
     }
     try {
       final (session, token) = await _api.createSession(
@@ -322,6 +325,7 @@ class _SessionListState extends State<_SessionList> {
         plates: plates?.map((p) => p.toJson()).toList(),
         puzzle: puzzle?.toJson(),
         layout: layout?.toJson(),
+        answers: offline == null ? null : (offline ? 'offline' : 'online'),
       );
       await widget.settings.setToken(session.id, token);
       await _open(session, showQr: true);

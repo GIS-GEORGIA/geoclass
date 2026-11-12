@@ -141,6 +141,9 @@ const GAMES = ['travel', 'coordinates', 'aerial', 'mapping', 'cards', 'evidence'
 const TIMED_GAMES = ['mapping', 'cards', 'puzzle'];
 // Games made of tasks that the server scores.
 const TASK_GAMES = ['coordinates', 'aerial'];
+// Games whose answers stay on the server unless the teacher chose the offline mode.
+const PROTECTED_GAMES = ['aerial', 'evidence'];
+const ANSWER_MODES = ['online', 'offline'];
 
 function sessionJson(s: SessionRow, count?: number) {
   return {
@@ -228,9 +231,28 @@ async function join(env: Env, request: Request): Promise<Response> {
     name: s.name,
     game: s.game,
     status: s.status,
-    settings: s.game === 'plates' ? studentPlates(settings) : settings,
+    settings: studentSettings(s.game, settings),
     now: nowSec(),
   });
+}
+
+/**
+ * What a student's device may know before answering. Teachers get the full settings.
+ * Online mode keeps the right answers on the server; the result comes back from submit.
+ * Sessions from before the choice existed have no mode and stay as they were: offline.
+ */
+export function studentSettings(game: string, settings: Record<string, unknown>): Record<string, unknown> {
+  if (game === 'plates') return studentPlates(settings as PlatesSettings);
+  if (!PROTECTED_GAMES.includes(game) || settings.answers !== 'online') return settings;
+  const tasks = settings.tasks as Record<string, unknown>[];
+  return {
+    ...settings,
+    tasks:
+      game === 'aerial'
+        ? tasks.map((t) => ({ mode: t.mode, format: t.format, photo: t.photo }))
+        : // The coordinates are on the picture itself, so only the names are kept back.
+          tasks.map((t) => ({ kind: t.kind, lat: t.lat, lon: t.lon, shown: t.shown, ask: t.ask, questions: t.questions, converter: t.converter, seed: t.seed })),
+  };
 }
 
 /** Students get only the plate on the screen now, not the ones still to come. Past the last one it's null. */
@@ -259,8 +281,10 @@ async function submit(env: Env, request: Request): Promise<Response> {
   if (typeof participantId !== 'string' || !ID_RE.test(participantId)) throw new HttpError(400, 'bad_id');
 
   // Checked before the status, so a retry of a stored answer succeeds even after the session closes.
-  const existing = await env.DB.prepare('SELECT id FROM responses WHERE id = ?').bind(submissionId).first();
-  if (existing) return json({ ok: true, duplicate: true });
+  const existing = await env.DB.prepare('SELECT session_id, round, score, distance_m FROM responses WHERE id = ?')
+    .bind(submissionId)
+    .first<StoredAnswer & { session_id: string }>();
+  if (existing) return json({ ok: true, duplicate: true, ...(existing.session_id === s.id ? answerResult(s, existing) : {}) });
 
   if (s.status !== 'open') throw new HttpError(409, `session_${s.status}`);
 
@@ -285,14 +309,15 @@ async function submit(env: Env, request: Request): Promise<Response> {
     if (!task) throw new HttpError(400, 'bad_round');
     const distance = distanceM(lat, lon, task.lat, task.lon);
     // The first try counts: the correct point is shown right after it.
-    await env.DB.batch([
+    const [stored] = await env.DB.batch([
       env.DB.prepare(
         `INSERT OR IGNORE INTO responses (id, session_id, participant_id, round, answer, lat, lon, distance_m, score, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(submissionId, s.id, participantId, body.round, JSON.stringify(answer), lat, lon, distance, scoreFor(distance), nowSec()),
       bumpRev(env, s.id),
     ]);
-    return json({ ok: true, duplicate: false }, 201);
+    const first = await storedAnswer(env, s.id, participantId, body.round as number);
+    return json({ ok: true, duplicate: stored.meta.changes === 0, ...answerResult(s, first) }, 201);
   }
 
   // One answer per student: sending again replaces the earlier one.
@@ -445,6 +470,7 @@ async function submitEvidence(
   const named = answer.q === 'name';
   const { distance, score } = scoreEvidence(task, answer, lat, lon);
   // The first answer counts: the right one is shown after the task.
+  const round = (taskIndex as number) * QUESTIONS.length + QUESTIONS.indexOf(answer.q as string);
   const stored = await env.DB.batch([
     env.DB.prepare(
       `INSERT OR IGNORE INTO responses (id, session_id, participant_id, round, answer, lat, lon, distance_m, score, created_at)
@@ -453,7 +479,7 @@ async function submitEvidence(
       submissionId,
       s.id,
       participantId,
-      (taskIndex as number) * QUESTIONS.length + QUESTIONS.indexOf(answer.q as string),
+      round,
       JSON.stringify(answer),
       named ? 0 : lat,
       named ? 0 : lon,
@@ -463,7 +489,38 @@ async function submitEvidence(
     ),
     bumpRev(env, s.id),
   ]);
-  return json({ ok: true, duplicate: stored[0].meta.changes === 0, score, distanceM: distance }, stored[0].meta.changes === 0 ? 200 : 201);
+  // The first answer's result, not this one's: trying names again must not tell which one is right.
+  const first = stored[0].meta.changes === 0 ? await storedAnswer(env, s.id, participantId, round) : { round, score, distance_m: distance };
+  return json({ ok: true, duplicate: stored[0].meta.changes === 0, ...answerResult(s, first) }, stored[0].meta.changes === 0 ? 200 : 201);
+}
+
+type StoredAnswer = { round: number; score: number | null; distance_m: number | null };
+
+async function storedAnswer(env: Env, sessionId: string, participantId: string, round: number): Promise<StoredAnswer | null> {
+  return env.DB.prepare('SELECT round, score, distance_m FROM responses WHERE session_id = ? AND participant_id = ? AND round = ?')
+    .bind(sessionId, participantId, round)
+    .first<StoredAnswer>();
+}
+
+/**
+ * What a student learns after an answer is stored: its score and the right answer. Only the first answer of a task
+ * counts, so this is always that one's result, sent again to a retry or a second try.
+ */
+function answerResult(s: SessionRow, row: StoredAnswer | null): Record<string, unknown> {
+  if (!row) return {};
+  const tasks = (JSON.parse(s.settings) as { tasks?: Record<string, unknown>[] }).tasks ?? [];
+  if (TASK_GAMES.includes(s.game)) {
+    const t = tasks[row.round];
+    if (!t) return {};
+    return { score: row.score, distanceM: row.distance_m, target: { lat: t.lat, lon: t.lon, label: t.label ?? '', labelEn: t.labelEn ?? '' } };
+  }
+  if (s.game === 'evidence') {
+    const t = tasks[Math.floor(row.round / QUESTIONS.length)] as EvidenceTask | undefined;
+    if (!t) return {};
+    const named = QUESTIONS[row.round % QUESTIONS.length] === 'name';
+    return { score: row.score, distanceM: row.distance_m, ...(named ? { right: t.names[0] ?? '' } : {}) };
+  }
+  return {};
 }
 
 /** A student deletes the answers of their own device in this session. The random id is known only to that device. */
@@ -504,6 +561,7 @@ async function createSession(env: Env, request: Request, actor: Actor): Promise<
     plates?: unknown;
     puzzle?: unknown;
     layout?: unknown;
+    answers?: unknown;
   }>(
     request,
   );
@@ -522,6 +580,11 @@ async function createSession(env: Env, request: Request, actor: Actor): Promise<
             : body.game === 'layout'
               ? validateLayout(body.layout)
               : {};
+  if (PROTECTED_GAMES.includes(body.game)) {
+    // New sessions keep the answers on the server unless the teacher asks for offline play.
+    if (body.answers !== undefined && !ANSWER_MODES.includes(body.answers as string)) throw new HttpError(400, 'bad_answers');
+    (settings as Record<string, unknown>).answers = body.answers ?? 'online';
+  }
   const id = crypto.randomUUID();
   const token = randomToken();
   await env.DB.prepare('INSERT INTO sessions (id, name, game, token_hash, settings, created_at, teacher_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
@@ -690,7 +753,7 @@ async function backup(env: Env, url: URL, actor: Actor): Promise<Response> {
   });
 }
 
-type BackupSession = { id?: unknown; name?: unknown; game?: unknown; archived?: unknown; teacherId?: unknown; settings?: { tasks?: unknown; pairs?: unknown; arrow?: unknown; rotation?: unknown }; createdAt?: unknown };
+type BackupSession = { id?: unknown; name?: unknown; game?: unknown; archived?: unknown; teacherId?: unknown; settings?: { tasks?: unknown; pairs?: unknown; arrow?: unknown; rotation?: unknown; answers?: unknown }; createdAt?: unknown };
 type BackupResponse = {
   id?: unknown;
   sessionId?: unknown;
@@ -714,7 +777,11 @@ function restoredTasks(game: string, raw: unknown): (Task | EvidenceTask)[] {
 
 /** The settings a restored session keeps: the task list or the deck. The clock is not restored, and plates start again. */
 function restoredSettings(game: string, tasks: (Task | EvidenceTask)[], raw: BackupSession['settings']): object {
-  if (TASK_GAMES.includes(game) || game === 'evidence') return { tasks };
+  if (TASK_GAMES.includes(game) || game === 'evidence') {
+    // The answer mode comes back as it was; a backup from before it existed has none, which means offline.
+    const answers = raw?.answers;
+    return PROTECTED_GAMES.includes(game) && ANSWER_MODES.includes(answers as string) ? { tasks, answers } : { tasks };
+  }
   if (game !== 'cards' && game !== 'plates' && game !== 'puzzle' && game !== 'layout') return {};
   try {
     if (game === 'layout') return validateLayout(raw);

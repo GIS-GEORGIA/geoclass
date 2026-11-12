@@ -104,6 +104,7 @@ class Api {
     List<Map<String, dynamic>>? plates,
     Map<String, dynamic>? puzzle,
     Map<String, dynamic>? layout,
+    String? answers, // aerial and evidence: 'online' (checked on the server, the default) or 'offline'
   }) async {
     final data = await _send('POST', 'sessions', {
       'name': name,
@@ -113,6 +114,7 @@ class Api {
       'plates': ?(plates == null ? null : {'deck': plates}),
       'puzzle': ?puzzle,
       'layout': ?layout,
+      'answers': ?answers,
     });
     return (SessionInfo.fromJson(data['session'] as Map<String, dynamic>), data['token'] as String);
   }

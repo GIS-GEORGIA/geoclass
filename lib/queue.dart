@@ -39,8 +39,12 @@ Future<void> forgetSessionOnDevice(String token) async {
 /// Answers waiting to be sent. Kept on the device so a lost connection loses nothing.
 class SubmissionQueue {
   static const _key = 'pending_submissions';
-  final Future<void> Function(Map<String, dynamic>) send;
-  SubmissionQueue(this.send);
+  final Future<dynamic> Function(Map<String, dynamic>) send;
+
+  /// Gets the server's reply to each accepted item, such as the score and the right answer of a game whose
+  /// answers stay on the server.
+  final void Function(Map<String, dynamic> item, Map<String, dynamic> reply)? onReply;
+  SubmissionQueue(this.send, {this.onReply});
 
   Future<List<Map<String, dynamic>>> _read() async {
     final raw = (await SharedPreferences.getInstance()).getString(_key);
@@ -63,7 +67,8 @@ class SubmissionQueue {
     String? refused;
     while (items.isNotEmpty) {
       try {
-        await send(items.first);
+        final reply = await send(items.first);
+        if (reply is Map<String, dynamic>) onReply?.call(items.first, reply);
       } on NoConnection {
         break;
       } on ApiError catch (e) {

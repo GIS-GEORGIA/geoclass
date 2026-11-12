@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'answer_mode.dart';
 import 'coords.dart';
 import 'evidence.dart';
 import 'geo_map.dart';
@@ -41,7 +42,8 @@ String _questionLetters(S s, EvidenceTask t) => [
     if (t.asks(q)) s['ev_short_$q'],
 ].join(', ');
 
-/// The teacher's list of tasks. Returns it when done.
+/// The teacher's list of tasks. Returns it when done, with whether the answers are checked on the students'
+/// devices (offline) instead of the server.
 class EvidenceSetupPage extends StatefulWidget {
   final S s;
   const EvidenceSetupPage({super.key, required this.s});
@@ -52,6 +54,7 @@ class EvidenceSetupPage extends StatefulWidget {
 class _EvidenceSetupPageState extends State<EvidenceSetupPage> {
   List<EvidenceTask> _tasks = [];
   PlaceIndex? _index;
+  bool _offline = false;
 
   S get s => widget.s;
 
@@ -87,7 +90,7 @@ class _EvidenceSetupPageState extends State<EvidenceSetupPage> {
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: FilledButton(
-              onPressed: _tasks.isEmpty ? null : () => Navigator.pop(context, _tasks),
+              onPressed: _tasks.isEmpty ? null : () => Navigator.pop(context, (_tasks, _offline)),
               child: Text(s['create']),
             ),
           ),
@@ -100,6 +103,8 @@ class _EvidenceSetupPageState extends State<EvidenceSetupPage> {
             padding: const EdgeInsets.all(16),
             children: [
               Text(s['ev_setup_hint']),
+              const SizedBox(height: 12),
+              OfflineAnswersSwitch(s: s, value: _offline, onChanged: (v) => setState(() => _offline = v)),
               const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
