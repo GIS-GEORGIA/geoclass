@@ -46,6 +46,7 @@ async function responses(sessionId: string) {
 
 beforeEach(async () => {
   await env.DB.exec('DELETE FROM sessions');
+  await env.DB.exec('DELETE FROM auth_failures');
 });
 
 describe('teacher access', () => {
@@ -55,17 +56,71 @@ describe('teacher access', () => {
     expect((await call('GET', 'backup', undefined, {})).status).toBe(401);
   });
 
-  it('gives out only part of the key, and that part alone does not sign in', async () => {
-    const res = await call('GET', 'key-hint', undefined, {});
-    expect(res.status).toBe(200);
-    const { hint } = (await res.json()) as { hint: string };
-    expect(KEY.startsWith(hint)).toBe(true);
-    expect(hint.length).toBeLessThan(KEY.length);
-    expect((await call('GET', 'me', undefined, { Authorization: `Bearer ${hint}` })).status).toBe(401);
+  it('has no key hint any more: nothing about the key is given out', async () => {
+    const open = await call('GET', 'key-hint', undefined, {});
+    expect(open.status).toBe(401);
+    expect(await open.text()).not.toContain('hint');
+    const signedIn = await call('GET', 'key-hint');
+    expect(signedIn.status).toBe(404);
+    expect(await signedIn.text()).not.toContain('test-teacher');
   });
 
   it('accepts the right key', async () => {
     expect((await call('GET', 'me')).status).toBe(200);
+  });
+
+  it('after 10 failed sign-ins from an address, answers 429 to it, even for the right key', async () => {
+    const from = (ip: string, key?: string) =>
+      call('GET', 'me', undefined, { 'CF-Connecting-IP': ip, ...(key ? { Authorization: `Bearer ${key}` } : {}) });
+    for (let i = 0; i < 10; i++) expect((await from('203.0.113.7', `wrong-${i}`)).status).toBe(401);
+    const blocked = await from('203.0.113.7', 'wrong-10');
+    expect(blocked.status).toBe(429);
+    expect(await blocked.json()).toEqual({ error: 'rate_limited' });
+    expect((await from('203.0.113.7')).status).toBe(429);
+    // A right guess looks the same as a wrong one while blocked.
+    expect((await from('203.0.113.7', KEY)).status).toBe(429);
+    // Other addresses are not affected.
+    expect((await from('198.51.100.2', KEY)).status).toBe(200);
+    expect((await from('198.51.100.2', 'wrong')).status).toBe(401);
+  });
+
+  it('lets an address in again when the minute is over, and counts afresh', async () => {
+    const from = (key: string) => call('GET', 'me', undefined, { 'CF-Connecting-IP': '203.0.113.8', Authorization: `Bearer ${key}` });
+    for (let i = 0; i < 10; i++) await from(`wrong-${i}`);
+    expect((await from(KEY)).status).toBe(429);
+    await env.DB.exec('UPDATE auth_failures SET window_start = window_start - 61');
+    expect((await from(KEY)).status).toBe(200);
+    expect((await from('wrong')).status).toBe(401);
+    const row = await env.DB.prepare('SELECT count FROM auth_failures').first<{ count: number }>();
+    expect(row?.count).toBe(1);
+  });
+
+  it('does not count right-key calls, so teacher polling never hits the limit', async () => {
+    const headers = { ...auth, 'CF-Connecting-IP': '203.0.113.9' };
+    for (let i = 0; i < 30; i++) expect((await call('GET', 'me', undefined, headers)).status).toBe(200);
+    const { n } = (await env.DB.prepare('SELECT COUNT(*) AS n FROM auth_failures').first<{ n: number }>())!;
+    expect(n).toBe(0);
+  });
+
+  it('keeps teacher work going after a few typos', async () => {
+    const ip = { 'CF-Connecting-IP': '203.0.113.10' };
+    for (let i = 0; i < 9; i++) expect((await call('GET', 'sessions', undefined, { ...ip, Authorization: 'Bearer typo' })).status).toBe(401);
+    const created = await call('POST', 'sessions', { name: 'VII b', game: 'travel' }, { ...auth, ...ip });
+    expect(created.status).toBe(201);
+    const { session } = (await created.json()) as { session: { id: string } };
+    expect((await call('GET', 'sessions', undefined, { ...auth, ...ip })).status).toBe(200);
+    expect((await call('PATCH', `sessions/${session.id}`, { status: 'paused' }, { ...auth, ...ip })).status).toBe(200);
+    expect((await call('DELETE', `sessions/${session.id}`, undefined, { ...auth, ...ip })).status).toBe(200);
+  });
+
+  it('keeps only a hash of the address, and deletes it after a day', async () => {
+    await call('GET', 'me', undefined, { 'CF-Connecting-IP': '203.0.113.11' });
+    const row = await env.DB.prepare('SELECT ip_hash, window_start FROM auth_failures').first<{ ip_hash: string; window_start: number }>();
+    expect(row?.ip_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(row?.ip_hash).not.toContain('203.0.113.11');
+    const { deleteOldAuthFailures, AUTH_KEEP_SEC } = await import('../src/retention');
+    expect(await deleteOldAuthFailures(env)).toBe(0);
+    expect(await deleteOldAuthFailures(env, row!.window_start + AUTH_KEEP_SEC + 1)).toBe(1);
   });
 
   it('a QR token does not open teacher endpoints', async () => {

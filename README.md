@@ -226,7 +226,7 @@ npm install
 npm run key
 ```
 
-`npm run key` prints a teacher key and its hash. The optional `TEACHER_KEY_HINT` secret is deliberately public: the sign-in page's small copy button gives it out, so it should be the key without its last characters, and the shorter it is, the harder the rest is to guess. Put the hash in `worker/.dev.vars`:
+`npm run key` prints a teacher key and its hash. Keep the key in a password manager: the server keeps only its hash and never gives out any part of it. After 10 wrong keys in a minute from one address, every teacher call from that address gets 429 until the minute is over, even with the right key; the count is kept in the `auth_failures` table as a keyed hash of the address and deleted after a day. Put the hash in `worker/.dev.vars`:
 
 ```
 TEACHER_KEY_HASH=<hash>
@@ -265,7 +265,7 @@ flutter build web --release --no-web-resources-cdn --no-wasm-dry-run --base-href
 npx wrangler deploy
 ```
 
-Run the `flutter build` line from the repository root. The migrations in `worker/migrations` (0001 to 0009) add one game each; before applying a new one to the live database, keep a copy with `npx wrangler d1 export geoclass --remote --output <file>.sql`. Native apps use `https://geoclass.qgis.ge` unless built with `--dart-define=API_BASE=<url>`.
+Run the `flutter build` line from the repository root. The migrations in `worker/migrations` (0001 to 0009 add one game each, 0010 the sign-in limit); before applying a new one to the live database, keep a copy with `npx wrangler d1 export geoclass --remote --output <file>.sql`. Native apps use `https://geoclass.qgis.ge` unless built with `--dart-define=API_BASE=<url>`.
 
 ## Rebuilding the place data
 

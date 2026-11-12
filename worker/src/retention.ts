@@ -12,3 +12,12 @@ export async function deleteOld(env: Env, now = nowSec()): Promise<number> {
   ]);
   return sessions.meta.changes ?? 0;
 }
+
+// Failed teacher sign-ins (hashed addresses) are kept for a day at most.
+export const AUTH_KEEP_SEC = 24 * 3600;
+
+/** Run every night: deletes the rate limit's records of failed sign-ins older than AUTH_KEEP_SEC. */
+export async function deleteOldAuthFailures(env: Env, now = nowSec()): Promise<number> {
+  const result = await env.DB.prepare('DELETE FROM auth_failures WHERE window_start < ?').bind(now - AUTH_KEEP_SEC).run();
+  return result.meta.changes ?? 0;
+}

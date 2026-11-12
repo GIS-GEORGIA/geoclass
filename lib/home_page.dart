@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'aerial_setup_page.dart';
@@ -83,33 +82,13 @@ class _KeyPageState extends State<_KeyPage> {
   final _ctl = TextEditingController();
   String? _error;
   bool _busy = false;
-  String? _hint; // the key without its ending; null hides the copy button
-  bool _copied = false;
-  Timer? _copiedTimer;
 
   S get s => widget.settings.s;
 
   @override
-  void initState() {
-    super.initState();
-    Api().keyHint().then((hint) {
-      if (mounted) setState(() => _hint = hint);
-    }, onError: (_) {});
-  }
-
-  @override
   void dispose() {
-    _copiedTimer?.cancel();
     _ctl.dispose();
     super.dispose();
-  }
-
-  Future<void> _copyHint() async {
-    await Clipboard.setData(ClipboardData(text: _hint!));
-    if (!mounted) return;
-    setState(() => _copied = true);
-    _copiedTimer?.cancel();
-    _copiedTimer = Timer(const Duration(seconds: 2), () => setState(() => _copied = false));
   }
 
   Future<void> _enter() async {
@@ -170,17 +149,6 @@ class _KeyPageState extends State<_KeyPage> {
                 ),
                 const SizedBox(height: 16),
                 FilledButton(onPressed: _busy ? null : _enter, child: Text(s['key_enter'])),
-                // Small and unlabelled on purpose: it's for the owner, and it gives only part of the key.
-                if (_hint != null)
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: IconButton(
-                      icon: Icon(_copied ? Icons.check : Icons.content_copy, size: 12),
-                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.25),
-                      visualDensity: VisualDensity.compact,
-                      onPressed: _copyHint,
-                    ),
-                  ),
                 const SizedBox(height: 16),
                 Center(
                   child: InkWell(

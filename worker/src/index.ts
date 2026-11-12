@@ -18,7 +18,7 @@ import {
   type EvidenceTask,
   type Task,
 } from './validate';
-import { KEEP_SEC, deleteOld } from './retention';
+import { KEEP_SEC, deleteOld, deleteOldAuthFailures } from './retention';
 
 const MAX_RESPONSES_PER_SESSION = 2000;
 const MAX_BODY_BYTES = 8 * 1024;
@@ -34,6 +34,9 @@ const MAX_TIMER_SEC = 3600;
 // Wrong tries in the cards game are told apart from found pairs by their number.
 const MISTAKE_ROUND_FROM = 100;
 const MAX_MISTAKES_PER_STUDENT = 300;
+// Failed teacher sign-ins allowed per address in AUTH_WINDOW_SEC; after that every teacher call from it gets 429.
+const AUTH_MAX_FAILURES = 10;
+const AUTH_WINDOW_SEC = 60;
 
 const CORS = {
   'Access-Control-Allow-Origin': '*', // no cookies: every teacher call carries its own bearer key
@@ -70,12 +73,35 @@ async function readBody<T>(request: Request, maxBytes = MAX_BODY_BYTES): Promise
   }
 }
 
+/**
+ * The teacher key, with a limit on wrong guesses. The limit is checked before the key, so once an address has
+ * failed AUTH_MAX_FAILURES times in a window even the right key gets 429 until the window ends: a guess that
+ * happens to be right can't be told apart from a wrong one. Failures are counted in D1 because the rate limit
+ * binding can't be read without counting a request, and valid teacher calls (polling) must not use it up.
+ */
 async function requireTeacher(env: Env, request: Request): Promise<void> {
+  // Keyed with the key's hash, a secret, so the stored value can't be turned back into an address by trying them all.
+  const ipHash = await sha256(`auth:${env.TEACHER_KEY_HASH ?? ''}:${request.headers.get('CF-Connecting-IP') ?? 'unknown'}`);
+  const now = nowSec();
+  const windowFrom = now - AUTH_WINDOW_SEC;
+  const failed = await env.DB.prepare('SELECT count FROM auth_failures WHERE ip_hash = ? AND window_start > ?')
+    .bind(ipHash, windowFrom)
+    .first<{ count: number }>();
+  if ((failed?.count ?? 0) >= AUTH_MAX_FAILURES) throw new HttpError(429, 'rate_limited');
+
   const header = request.headers.get('Authorization') ?? '';
   const key = header.startsWith('Bearer ') ? header.slice(7) : '';
-  if (!env.TEACHER_KEY_HASH || !key || (await sha256(key)) !== env.TEACHER_KEY_HASH) {
-    throw new HttpError(401, 'unauthorized');
-  }
+  if (env.TEACHER_KEY_HASH && key && (await sha256(key)) === env.TEACHER_KEY_HASH) return;
+
+  await env.DB.prepare(
+    `INSERT INTO auth_failures (ip_hash, window_start, count) VALUES (?, ?, 1)
+     ON CONFLICT (ip_hash) DO UPDATE SET
+       count = CASE WHEN window_start > ? THEN count + 1 ELSE 1 END,
+       window_start = CASE WHEN window_start > ? THEN window_start ELSE excluded.window_start END`,
+  )
+    .bind(ipHash, now, windowFrom, windowFrom)
+    .run();
+  throw new HttpError(401, 'unauthorized');
 }
 
 type SessionRow = {
@@ -783,11 +809,6 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
   if (key === 'POST join') return join(env, request);
   if (key === 'POST submit') return submit(env, request);
   if (key === 'POST forget') return forget(env, request);
-  // Deliberately public: the key minus its ending, which the owner keeps in their head. Unset, it's a 404.
-  if (key === 'GET key-hint') {
-    if (!env.TEACHER_KEY_HINT) throw new HttpError(404, 'not_found');
-    return json({ hint: env.TEACHER_KEY_HINT });
-  }
 
   await requireTeacher(env, request);
 
@@ -834,6 +855,7 @@ export default {
   },
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
     const n = await deleteOld(env);
+    await deleteOldAuthFailures(env);
     if (n > 0) console.log(`deleted ${n} sessions older than ${KEEP_SEC / 86400} days`);
   },
 } satisfies ExportedHandler<Env>;
