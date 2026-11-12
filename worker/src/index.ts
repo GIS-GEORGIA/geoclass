@@ -52,7 +52,12 @@ const nowSec = () => Math.floor(Date.now() / 1000);
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...CORS },
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      ...CORS,
+    },
   });
 }
 

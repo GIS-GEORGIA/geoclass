@@ -3,3 +3,10 @@
   Cache-Control: public, max-age=0, must-revalidate, no-transform
 /index.html
   Cache-Control: public, max-age=0, must-revalidate, no-transform
+# Only this site's own files, plus map tiles. 'wasm-unsafe-eval' lets CanvasKit (WebAssembly) start;
+# map tiles are fetched as data, so their hosts are in connect-src as well as img-src.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org https://tile.opentopomap.org; connect-src 'self' https://tile.openstreetmap.org https://tile.opentopomap.org; font-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()

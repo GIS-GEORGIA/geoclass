@@ -69,6 +69,12 @@ describe('teacher access', () => {
     expect(await signedIn.text()).not.toContain('test-teacher');
   });
 
+  it('API replies tell the browser not to guess their type', async () => {
+    const res = await call('GET', 'me');
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect((await call('GET', 'me', undefined, {})).headers.get('X-Content-Type-Options')).toBe('nosniff');
+  });
+
   it('accepts the right key', async () => {
     expect((await call('GET', 'me')).status).toBe(200);
   });
