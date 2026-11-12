@@ -13,6 +13,8 @@ import 'games/registry.dart';
 import 'l10n.dart';
 import 'mapping_play.dart';
 import 'models.dart';
+import 'nickname_dialog.dart';
+import 'nicknames.dart';
 import 'plates_play.dart';
 import 'puzzle_play.dart';
 import 'layout_play.dart';
@@ -48,6 +50,8 @@ class _StudentPageState extends State<StudentPage> {
 
   S get s => widget.settings.s;
   String get _cacheKey => 'join_${widget.token}';
+  // Ends with the token, so starting over (forgetSessionOnDevice) removes it too.
+  String get _nickKey => 'nick_${widget.token}';
 
   @override
   void initState() {
@@ -58,6 +62,11 @@ class _StudentPageState extends State<StudentPage> {
   Future<void> _load() async {
     setState(() => _stage = _Stage.loading);
     final prefs = await SharedPreferences.getInstance();
+    // Made before anything of this session is kept on the device: a session the device was already playing
+    // before ids were per session is told apart from a new one by what is kept (see participantId).
+    final pid = await participantId(widget.token);
+    final picked = prefs.getString(_nickKey);
+    rememberNicknames(picked == null ? const {} : {pid: picked}, forIds: [pid]);
     try {
       final data = await _api.join(widget.token);
       await prefs.setString(_cacheKey, jsonEncode(data));
@@ -92,13 +101,69 @@ class _StudentPageState extends State<StudentPage> {
 
   /// The student erases their answers in this session, on the server and on this device, and starts afresh.
   Future<int> _forget() async {
-    final n = await _api.forget(widget.token, await participantId());
+    final n = await _api.forget(widget.token, await participantId(widget.token));
     await forgetSessionOnDevice(widget.token);
     if (mounted) {
       setState(() => _generation++);
       _load();
     }
     return n;
+  }
+
+  void _say(String text) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+
+  String _problem(Object e) => s.f('failed', [e is ApiError ? s[e.key] : s['no_connection']]);
+
+  /// The student picks a made-up name for this session, or goes back to the automatic one.
+  Future<void> _pickNickname() async {
+    final pid = await participantId(widget.token);
+    if (!mounted) return;
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (_) => NicknameDialog(s: s, lang: widget.settings.lang, current: nickname(pid, widget.settings.lang)),
+    );
+    if (picked == null || !mounted) return;
+    try {
+      final saved = await _api.setNickname(widget.token, pid, picked.isEmpty ? null : picked);
+      final prefs = await SharedPreferences.getInstance();
+      saved == null ? await prefs.remove(_nickKey) : await prefs.setString(_nickKey, saved);
+      rememberNicknames(saved == null ? const {} : {pid: saved}, forIds: [pid]);
+      if (!mounted) return;
+      setState(() {});
+      _say(s.f('nick_saved', [nickname(pid, widget.settings.lang)]));
+    } on ApiError catch (e) {
+      if (mounted) _say(_problem(e));
+    } on NoConnection catch (e) {
+      if (mounted) _say(_problem(e));
+    }
+  }
+
+  /// Finish / start over: the answers go, on the server and here, and a new id and name come with the next start.
+  Future<void> _startOver() async {
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(s['start_over']),
+        content: Text(s['start_over_body']),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(s['cancel'])),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(s['start_over_do']),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !mounted) return;
+    try {
+      final n = await _forget();
+      if (mounted) _say(s.f('forget_done', [n]));
+    } on ApiError catch (e) {
+      if (mounted) _say(_problem(e));
+    } on NoConnection catch (e) {
+      if (mounted) _say(_problem(e));
+    }
   }
 
   @override
@@ -110,6 +175,16 @@ class _StudentPageState extends State<StudentPage> {
               onPressed: () => widget.settings.setLang(widget.settings.lang == 'ka' ? 'en' : 'ka'),
               child: Text(widget.settings.lang == 'ka' ? 'EN' : 'KA'),
             ),
+            if (_stage == _Stage.form)
+              PopupMenuButton<String>(
+                tooltip: s['nick_menu'],
+                icon: const Icon(Icons.person_outline),
+                onSelected: (v) => v == 'nick' ? _pickNickname() : _startOver(),
+                itemBuilder: (_) => [
+                  PopupMenuItem(value: 'nick', child: ListTile(leading: const Icon(Icons.badge_outlined), title: Text(s['nick_title']))),
+                  PopupMenuItem(value: 'over', child: ListTile(leading: const Icon(Icons.restart_alt), title: Text(s['start_over']))),
+                ],
+              ),
             PrivacyInfoButton(s: s, onForget: _stage == _Stage.loading || _stage == _Stage.gone ? null : _forget),
             IconButton(
               tooltip: s['settings'],

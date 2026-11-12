@@ -1728,3 +1728,66 @@ describe('game registry', () => {
     expect((await play(token, 0, 'Tbilisi')).status).toBe(201);
   });
 });
+
+describe('student nicknames', () => {
+  const pick = (token: string, nickname: unknown, participantId = 'nick-student-01') => student('nickname', { token, participantId, nickname });
+  const polled = async (sessionId: string) =>
+    (await (await call('GET', `sessions/${sessionId}/responses`)).json()) as { nicknames: Record<string, string>; session: { rev: number } };
+
+  it('a student picks, changes and clears a nickname; the teacher sees it', async () => {
+    const { session, token } = await newSession();
+    const res = await pick(token, '  მწვანე   მელა ');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, nickname: 'მწვანე მელა' });
+    expect((await polled(session.id)).nicknames).toEqual({ 'nick-student-01': 'მწვანე მელა' });
+
+    const rev = (await polled(session.id)).session.rev;
+    await pick(token, 'Rioni Otter');
+    const after = await polled(session.id);
+    expect(after.nicknames).toEqual({ 'nick-student-01': 'Rioni Otter' });
+    expect(after.session.rev).toBeGreaterThan(rev);
+
+    expect(await (await pick(token, null)).json()).toEqual({ ok: true, nickname: null });
+    expect((await polled(session.id)).nicknames).toEqual({});
+  });
+
+  it('refuses what isn’t a made-up short name, and wrong tokens or ids', async () => {
+    const { token } = await newSession();
+    for (const bad of ['x'.repeat(21), '<b>hi</b>', '-dash', 'a\u0000b', 42, ['Fox']]) {
+      expect((await pick(token, bad)).status, String(bad)).toBe(400);
+    }
+    expect((await pick('wrong-token', 'Fox')).status).toBe(404);
+    expect((await pick(token, 'Fox', 'x')).status).toBe(400);
+  });
+
+  it('is kept per session: the same id elsewhere is someone else', async () => {
+    const a = await newSession();
+    const b = await newSession();
+    await pick(a.token, 'Kazbegi Owl');
+    expect((await polled(b.session.id)).nicknames).toEqual({});
+  });
+
+  it('goes with forget, and comes back through a backup', async () => {
+    const { session, token } = await newSession();
+    await send(token, { participantId: 'nick-student-01' });
+    await pick(token, 'Mtatsminda Lynx');
+    const file = (await (await call('GET', 'backup')).json()) as { participants: unknown[] };
+    expect(file.participants).toHaveLength(1);
+
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    expect((await polled(session.id)).nicknames).toEqual({ 'nick-student-01': 'Mtatsminda Lynx' });
+
+    await call('DELETE', `sessions/${session.id}`);
+    const edited = JSON.parse(JSON.stringify(file)) as { participants: { nickname: string }[] };
+    edited.participants[0].nickname = '<b>x</b>';
+    expect((await call('POST', 'restore', edited)).status).toBe(400);
+  });
+
+  it('forget deletes it', async () => {
+    const { session, token } = await newSession();
+    await pick(token, 'Borjomi Deer');
+    await student('forget', { token, participantId: 'nick-student-01' });
+    expect((await polled(session.id)).nicknames).toEqual({});
+  });
+});

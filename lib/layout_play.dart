@@ -190,7 +190,7 @@ class _LayoutPlayState extends State<LayoutPlay> {
       final data = await widget.api.submit({
         'token': widget.token,
         'submissionId': randomId(),
-        'participantId': await participantId(),
+        'participantId': await participantId(widget.token),
         'answer': _sheet!.toJson(),
         'lat': 0,
         'lon': 0,

@@ -89,7 +89,7 @@ class _CardsPlayState extends State<CardsPlay> {
   // Reopening the link keeps the table and what was found, until the teacher clears the session.
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    _participant = await participantId();
+    _participant = await participantId(widget.token);
     final canonical = _canonical();
     final saved = prefs.getString(_storeKey);
     if (saved != null) {

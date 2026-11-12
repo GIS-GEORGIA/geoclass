@@ -107,7 +107,7 @@ class _PuzzlePlayState extends State<PuzzlePlay> {
     final units = widget.units ?? await loadGeoUnits();
     final board = buildBoard(units, _spec);
     final prefs = await SharedPreferences.getInstance();
-    _participant = await participantId();
+    _participant = await participantId(widget.token);
     _board = board;
     final saved = prefs.getString(_storeKey);
     if (saved != null) {

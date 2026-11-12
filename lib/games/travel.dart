@@ -160,7 +160,7 @@ class _TravelPlayState extends State<TravelPlay> {
     await _queue.add({
       'token': widget.ctx.token,
       'submissionId': randomId(),
-      'participantId': await participantId(),
+      'participantId': await participantId(widget.ctx.token),
       'answer': {
         'place': _placeCtl.text.trim(),
         'country': _country,

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
+import 'nicknames.dart';
 
 const _productionUrl = 'https://geoclass.qgis.ge';
 const _apiBase = String.fromEnvironment('API_BASE');
@@ -69,6 +70,11 @@ class Api {
   Future<Map<String, dynamic>> submit(Map<String, dynamic> submission) => _send('POST', 'submit', submission);
 
   /// Deletes this device's answers in the session; returns how many there were.
+  /// Sets this student's nickname in the session, or with null goes back to the one made from the id.
+  Future<String?> setNickname(String token, String participantId, String? nickname) async =>
+      (await _send('POST', 'nickname', {'token': token, 'participantId': participantId, 'nickname': nickname}))['nickname']
+          as String?;
+
   Future<int> forget(String token, String participantId) async =>
       ((await _send('POST', 'forget', {'token': token, 'participantId': participantId}))['deleted'] as num).toInt();
 
@@ -141,7 +147,12 @@ class Api {
     final data = await _send('GET', 'sessions/$id/responses${rev == null ? '' : '?rev=$rev'}');
     final session = SessionInfo.fromJson(data['session'] as Map<String, dynamic>);
     if (data['changed'] != true) return Polled(session, null);
-    return Polled(session, (data['responses'] as List).cast<Map<String, dynamic>>());
+    final rows = (data['responses'] as List).cast<Map<String, dynamic>>();
+    rememberNicknames(
+      (data['nicknames'] as Map<String, dynamic>? ?? const {}).cast<String, String>(),
+      forIds: rows.map((r) => r['participantId'] as String),
+    );
+    return Polled(session, rows);
   }
 
   Future<void> setHidden(String responseId, bool hidden) => _send('PATCH', 'responses/$responseId', {'hidden': hidden});

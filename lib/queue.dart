@@ -11,15 +11,21 @@ String randomId() {
   return base64UrlEncode(List.generate(18, (_) => r.nextInt(256)));
 }
 
-/// The anonymous id of this device. No name or contact is ever attached to it.
-Future<String> participantId() async {
+/// The anonymous id of this student in one session (one QR code). Every session gets its own, so two sessions
+/// can't be linked by it. Starting over removes it with the rest of the session (forgetSessionOnDevice), and the
+/// next one is new. No name or contact is ever attached to it.
+Future<String> participantId(String token) async {
   final p = await SharedPreferences.getInstance();
-  var id = p.getString('participant_id');
-  if (id == null) {
-    id = randomId();
-    await p.setString('participant_id', id);
-  }
-  return id;
+  final key = 'pid_$token';
+  final id = p.getString(key);
+  if (id != null) return id;
+  // Before per-session ids one id served every session. A session this device was already playing keeps it,
+  // so its earlier answers stay together; any other session gets a new one.
+  final shared = p.getString('participant_id');
+  final playing = shared != null && p.getKeys().any((k) => k.endsWith('_$token'));
+  final fresh = playing ? shared : randomId();
+  await p.setString(key, fresh);
+  return fresh;
 }
 
 /// After the student erased their answers: nothing of this session stays on the device either

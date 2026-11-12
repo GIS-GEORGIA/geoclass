@@ -634,6 +634,52 @@ async function forget(env: Env, request: Request): Promise<Response> {
   return json({ deleted: deleted.meta.changes ?? 0 });
 }
 
+/**
+ * A nickname a student picks for this session, or null to go back to the one made from the random id.
+ * Letters, digits, spaces, - and _ only, at most 20 characters. The app asks for a made-up name, never a real one.
+ */
+const MAX_NICKNAME_CHARS = 20;
+const NICKNAME_RE = /^[\p{L}\p{N}][\p{L}\p{N}\p{M} _-]*$/u;
+
+export function cleanNickname(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') throw new HttpError(400, 'bad_nickname');
+  const nickname = value.normalize('NFKC').trim().replace(/\s+/g, ' ');
+  if (!nickname) return null;
+  if ([...nickname].length > MAX_NICKNAME_CHARS || !NICKNAME_RE.test(nickname)) throw new HttpError(400, 'bad_nickname');
+  return nickname;
+}
+
+/** A student sets or clears their nickname in this session. Kept with the session and deleted with it, or by forget. */
+async function setNickname(env: Env, request: Request): Promise<Response> {
+  const limited = await env.SUBMIT_LIMIT?.limit({ key: request.headers.get('CF-Connecting-IP') ?? 'unknown' });
+  if (limited && !limited.success) throw new HttpError(429, 'rate_limited');
+  const body = await readBody<{ token?: unknown; participantId?: unknown; nickname?: unknown }>(request);
+  const s = await sessionByToken(env, body.token);
+  const participantId = body.participantId;
+  if (typeof participantId !== 'string' || !ID_RE.test(participantId)) throw new HttpError(400, 'bad_id');
+  const nickname = cleanNickname(body.nickname);
+  if (nickname === null) {
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM participants WHERE session_id = ? AND pid = ?').bind(s.id, participantId),
+      bumpRev(env, s.id),
+    ]);
+    return json({ ok: true, nickname: null });
+  }
+  const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM participants WHERE session_id = ? AND pid != ?')
+    .bind(s.id, participantId)
+    .first<{ n: number }>();
+  if ((count?.n ?? 0) >= MAX_RESPONSES_PER_SESSION) throw new HttpError(429, 'session_full');
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO participants (session_id, pid, nickname, created_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT (session_id, pid) DO UPDATE SET nickname = excluded.nickname`,
+    ).bind(s.id, participantId, nickname, nowSec()),
+    bumpRev(env, s.id),
+  ]);
+  return json({ ok: true, nickname });
+}
+
 // --- Teacher endpoints ---
 
 async function listSessions(env: Env, actor: Actor): Promise<Response> {
@@ -788,7 +834,16 @@ async function listResponses(env: Env, url: URL, id: string, actor: Actor): Prom
   const { results } = await env.DB.prepare('SELECT * FROM responses WHERE session_id = ? ORDER BY created_at, id')
     .bind(id)
     .all<ResponseRow>();
-  return json({ changed: true, session: sessionJson(s), responses: results.map(responseJson) });
+  // The nicknames students picked; the others keep the one the app makes from the random id.
+  const { results: named } = await env.DB.prepare('SELECT pid, nickname FROM participants WHERE session_id = ? AND nickname IS NOT NULL')
+    .bind(id)
+    .all<{ pid: string; nickname: string }>();
+  return json({
+    changed: true,
+    session: sessionJson(s),
+    responses: results.map(responseJson),
+    nicknames: Object.fromEntries(named.map((p) => [p.pid, p.nickname])),
+  });
 }
 
 async function resetResponses(env: Env, id: string, actor: Actor): Promise<Response> {
@@ -904,8 +959,14 @@ function attemptJson(a: AttemptRow) {
   };
 }
 
-/** Nicknames in a backup: optional, 1 to 20 characters, as the participants table allows. */
-const MAX_NICKNAME = 20;
+/** A nickname in a backup must be one the nickname endpoint would have stored as it is. */
+function validNickname(nickname: string): boolean {
+  try {
+    return cleanNickname(nickname) === nickname;
+  } catch {
+    return false;
+  }
+}
 
 type BackupParticipant = { sessionId?: unknown; participantId?: unknown; nickname?: unknown; createdAt?: unknown };
 
@@ -1136,7 +1197,7 @@ async function restore(env: Env, request: Request, actor: Actor): Promise<Respon
       games.has(p.sessionId) &&
       typeof p.participantId === 'string' &&
       ID_RE.test(p.participantId) &&
-      (nickname === null || (typeof nickname === 'string' && nickname.length >= 1 && [...nickname].length <= MAX_NICKNAME)) &&
+      (nickname === null || (typeof nickname === 'string' && validNickname(nickname))) &&
       typeof p.createdAt === 'number';
     if (!valid) throw new HttpError(400, 'bad_backup');
     statements.push(
@@ -1244,6 +1305,7 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
   if (key === 'POST join') return join(env, request);
   if (key === 'POST submit') return submit(env, request);
   if (key === 'POST forget') return forget(env, request);
+  if (key === 'POST nickname') return setNickname(env, request);
   if (key === 'GET card-image' && parts.length === 3) return cardImage(env, parts[1], parts[2]);
 
   const actor = await requireTeacher(env, request);

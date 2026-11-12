@@ -95,7 +95,7 @@ class _EvidencePlayState extends State<EvidencePlay> {
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    _participant = await participantId();
+    _participant = await participantId(widget.token);
     final saved = prefs.getString(_progressKey);
     if (saved != null) {
       final data = jsonDecode(saved) as Map<String, dynamic>;

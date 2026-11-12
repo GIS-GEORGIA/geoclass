@@ -200,9 +200,10 @@ void main() {
       }
     });
 
-    test('participant id stays the same on one device', () async {
-      final a = await participantId();
-      expect(await participantId(), a);
+    test('participant id stays the same in one session on one device', () async {
+      SharedPreferences.setMockInitialValues({});
+      final a = await participantId('token-a');
+      expect(await participantId('token-a'), a);
       expect(a.length, greaterThanOrEqualTo(8));
       expect(RegExp(r'^[A-Za-z0-9_-]+=*$').hasMatch(a), isTrue);
     });

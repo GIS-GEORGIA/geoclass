@@ -83,7 +83,7 @@ class _MappingPlayState extends State<MappingPlay> {
   // Reopening the link keeps what was drawn, until the teacher clears the session.
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    _participant = await participantId();
+    _participant = await participantId(widget.token);
     final saved = prefs.getString(_storeKey);
     if (saved != null) {
       final data = jsonDecode(saved) as Map<String, dynamic>;

@@ -27,7 +27,8 @@
 <h2>რას ვინახავთ</h2>
 <ul>
   <li><b>მოსწავლის პასუხები:</b> რუკაზე დასმული წერტილი, დახატული ხაზი ან პოლიგონი და მისი სახეობა, ფორმაში ჩაწერილი ან არჩეული პასუხები, ქულა და გაგზავნის დრო. ისინი სერვერზე ინახება და მათ ხედავს მასწავლებელი, ხოლო საკლასო რუკაზე ჩვენებისას ხედავს კლასიც.</li>
-  <li><b>შემთხვევითი იდენტიფიკატორი:</b> მოწყობილობაზე იქმნება და პასუხებს ერთმანეთთან აკავშირებს. რეიტინგის მეტსახელი, მაგალითად „ლურჯი მელა“, მისგან გამოითვლება.</li>
+  <li><b>შემთხვევითი იდენტიფიკატორი:</b> მოწყობილობაზე იქმნება ყოველი სესიისთვის ცალკე და ერთი სესიის პასუხებს ერთმანეთთან აკავშირებს. სხვადასხვა სესიის პასუხებს ის ერთმანეთთან ვერ აკავშირებს. რეიტინგის მეტსახელი, მაგალითად „ლურჯი მელა“, მისგან გამოითვლება. „დასრულება / თავიდან დაწყება“ შლის სესიის პასუხებს და იდენტიფიკატორს, და შემდეგ ახალი იქმნება.</li>
+  <li><b>სათამაშო სახელი (არასავალდებულო):</b> მოსწავლეს შეუძლია ამ სესიისთვის თავად აირჩიოს ან ჩაწეროს სახელი (20 სიმბოლომდე). აპი აფრთხილებს, რომ ნამდვილი სახელი არ დაწეროს. ის სესიასთან ერთად იშლება.</li>
   <li><b>ტექნიკური ჟურნალები:</b> სერვერის მოთხოვნების ჩანაწერები (დრო, მისამართი, პასუხის კოდი და ტექნიკური დეტალები, მათ შორის შეიძლება IP მისამართიც) შეცდომების საპოვნელად. მათ Cloudflare ინახავს არაუმეტეს 7 დღისა. ზედმეტად ბევრი მოთხოვნის შესაზღუდად IP მისამართი წამიერად გამოიყენება და ჩვენს მონაცემთა ბაზაში არ ინახება. გამონაკლისია მასწავლებლის გასაღების არასწორი შეყვანა: მისი რაოდენობის შესაზღუდად ბაზაში ინახება საიდუმლო გასაღებით გამოთვლილი IP მისამართის ჰეში (თავად მისამართი არა) და მცდელობების რიცხვი, არაუმეტეს 1 დღისა.</li>
 </ul>
 <p>მოწყობილობაზე რჩება ენისა და თემის არჩევანი, თამაშის პროგრესი და ჯერ გაუგზავნელი პასუხები. ბარათების თამაშში Android აპს შეუძლია ტელეფონის კომპასის წაკითხვა, რომ ბარათი ჩრდილოეთისკენ შემოაბრუნოს. ეს მონაცემი მხოლოდ მოწყობილობაზე გამოიყენება, არ ინახება და არსად იგზავნება. მასწავლებლის მოწყობილობაზე ინახება მასწავლებლის გასაღები და QR კოდების ბმულები.</p>
@@ -104,7 +105,8 @@
 <h2>What we store</h2>
 <ul>
   <li><b>Student answers:</b> the point placed on the map, the line or polygon drawn and what kind of place it is, the answers typed or chosen in a form, the score and the time sent. They are stored on the server and seen by the teacher, and by the class when shown on the class map.</li>
-  <li><b>A random identifier:</b> made on the device, it links one student's answers together. The leaderboard nickname, such as "Blue Fox", is worked out from it.</li>
+  <li><b>A random identifier:</b> made on the device for each session separately, it links one student's answers within that session. It can't link answers across sessions. The leaderboard nickname, such as "Blue Fox", is worked out from it. "Finish / start over" deletes the session's answers and the identifier, and a new one is made.</li>
+  <li><b>A game name (optional):</b> a student may pick or type a name for the session (up to 20 characters). The app warns them not to use their real name. It is deleted with the session.</li>
   <li><b>Technical logs:</b> records of server requests (time, address, response code and technical details, which may include the IP address) for finding faults. Cloudflare keeps them for no more than 7 days. To limit floods of requests the IP address is used for a moment and is not stored in our database. One exception: to limit wrong teacher-key attempts, the database keeps a keyed hash of the IP address (not the address itself) and the number of attempts, for no more than 1 day.</li>
 </ul>
 <p>The device keeps the language and theme choice, game progress and answers not sent yet. In the cards game the Android app can read the phone's compass to turn a card toward north. That reading is used on the device only and is never stored or sent. A teacher's device keeps the teacher key and the QR code links.</p>
