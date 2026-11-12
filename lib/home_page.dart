@@ -3,11 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import 'aerial_setup_page.dart';
 import 'cards.dart';
 import 'cards_setup_page.dart';
 import 'evidence.dart';
 import 'evidence_setup_page.dart';
+import 'games/registry.dart';
 import 'plates.dart';
 import 'plates_setup_page.dart';
 import 'puzzle.dart';
@@ -233,12 +233,12 @@ class _SessionListState extends State<_SessionList> {
                 onChanged: (v) => setDialog(() => game = v!),
                 child: Column(
                   children: [
-                    for (final g in const ['travel', 'coordinates', 'aerial', 'evidence', 'mapping', 'cards', 'plates', 'puzzle', 'layout'])
+                    for (final g in pickableGames())
                       RadioListTile<String>(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
                         value: g,
-                        title: Text(s['game_$g']),
+                        title: Text(gameModule(g)?.title(s) ?? s['game_$g']),
                       ),
                   ],
                 ),
@@ -261,7 +261,7 @@ class _SessionListState extends State<_SessionList> {
             TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s['cancel'])),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, ctl.text),
-              child: Text(game == 'travel' || game == 'mapping' ? s['create'] : s['next']),
+              child: Text((gameModule(game)?.hasSetup ?? game != 'mapping') ? s['next'] : s['create']),
             ),
           ],
         ),
@@ -276,8 +276,13 @@ class _SessionListState extends State<_SessionList> {
     List<PlateSpec>? plates;
     PuzzleSpec? puzzle;
     LayoutSpec? layout;
-    bool? offline; // aerial, evidence and cards: answers checked on the devices instead of the server
-    if (game == 'layout') {
+    bool? offline; // evidence and cards: answers checked on the devices instead of the server
+    Map<String, dynamic>? fields; // a game module's settings
+    final module = gameModule(game);
+    if (module != null) {
+      fields = await module.setup(context, s, widget.settings.lang);
+      if (fields == null) return;
+    } else if (game == 'layout') {
       layout = await Navigator.of(context).push<LayoutSpec>(MaterialPageRoute(
         builder: (_) => LayoutSetupPage(s: s, lang: widget.settings.lang),
       ));
@@ -309,12 +314,6 @@ class _SessionListState extends State<_SessionList> {
         builder: (_) => CoordinatesSetupPage(s: s),
       ));
       if (tasks == null) return;
-    } else if (game == 'aerial') {
-      final picked = await Navigator.of(context).push<(List<CoordTask>, bool)>(MaterialPageRoute(
-        builder: (_) => AerialSetupPage(s: s, lang: widget.settings.lang),
-      ));
-      if (picked == null) return;
-      (tasks, offline) = picked;
     }
     try {
       final (session, token) = await _api.createSession(
@@ -327,6 +326,7 @@ class _SessionListState extends State<_SessionList> {
         puzzle: puzzle?.toJson(),
         layout: layout?.toJson(),
         answers: offline == null ? null : (offline ? 'offline' : 'online'),
+        fields: fields,
       );
       await widget.settings.setToken(session.id, token);
       await _open(session, showQr: true);
@@ -417,21 +417,11 @@ class _SessionListState extends State<_SessionList> {
                           for (final x in visible)
                             Card(
                               child: ListTile(
-                                leading: Icon(switch (x.game) {
-                                  'coordinates' => Icons.my_location,
-                                  'aerial' => Icons.satellite_alt,
-                                  'mapping' => Icons.draw,
-                                  'cards' => Icons.style,
-                                  'evidence' => Icons.receipt_long,
-                                  'plates' => Icons.palette_outlined,
-                                  'puzzle' => Icons.extension,
-                                  'layout' => Icons.map_outlined,
-                                  _ => Icons.travel_explore,
-                                }),
+                                leading: Icon(gameIcon(x.game)),
                                 title: Text(x.name),
                                 subtitle: Text([
                                   if (x.teacherName != null) s.f('session_by', [x.teacherName!]),
-                                  s['game_${x.game}'],
+                                  gameModule(x.game)?.title(s) ?? s['game_${x.game}'],
                                   s['status_${x.status}'],
                                   s.f('answers_count', [x.responses ?? 0]),
                                   if (x.archived) s['archived'],

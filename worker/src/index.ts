@@ -20,6 +20,8 @@ import {
   type Task,
 } from './validate';
 import { KEEP_SEC, deleteOld, deleteOldAuthFailures, deleteOldTeachers } from './retention';
+import { gameModule } from './games/registry';
+import type { GameModule, Place, StoredAnswer } from './games/types';
 
 const MAX_RESPONSES_PER_SESSION = 2000;
 const MAX_BODY_BYTES = 8 * 1024;
@@ -137,13 +139,15 @@ type SessionRow = {
 };
 
 const SESSION_COLUMNS = 'id, name, game, status, rev, archived, settings, created_at, teacher_id';
-const GAMES = ['travel', 'coordinates', 'aerial', 'mapping', 'cards', 'evidence', 'plates', 'puzzle', 'layout'];
+// Games still handled in this file. The others are modules in games/ (travel, aerial), found through the registry.
+const LEGACY_GAMES = ['coordinates', 'mapping', 'cards', 'evidence', 'plates', 'puzzle', 'layout'];
+const knownGame = (game: string) => LEGACY_GAMES.includes(game) || gameModule(game) !== undefined;
 // Games played against the teacher's clock.
 const TIMED_GAMES = ['mapping', 'cards', 'puzzle'];
 // Games made of tasks that the server scores.
-const TASK_GAMES = ['coordinates', 'aerial'];
+const TASK_GAMES = ['coordinates'];
 // Games whose answers stay on the server unless the teacher chose the offline mode.
-const PROTECTED_GAMES = ['aerial', 'evidence', 'cards'];
+const PROTECTED_GAMES = ['evidence', 'cards'];
 const ANSWER_MODES = ['online', 'offline'];
 
 function sessionJson(s: SessionRow, count?: number) {
@@ -243,6 +247,8 @@ async function join(env: Env, request: Request): Promise<Response> {
  * Sessions from before the choice existed have no mode and stay as they were: offline.
  */
 export function studentSettings(game: string, settings: Record<string, unknown>, sessionId: string): Record<string, unknown> {
+  const module = gameModule(game);
+  if (module) return module.studentView(settings, sessionId);
   if (game === 'plates') return studentPlates(settings as PlatesSettings);
   if (!PROTECTED_GAMES.includes(game) || settings.answers !== 'online') return settings;
   if (game === 'cards') {
@@ -255,11 +261,8 @@ export function studentSettings(game: string, settings: Record<string, unknown>,
   const tasks = settings.tasks as Record<string, unknown>[];
   return {
     ...settings,
-    tasks:
-      game === 'aerial'
-        ? tasks.map((t) => ({ mode: t.mode, format: t.format, photo: t.photo }))
-        : // The coordinates are on the picture itself, so only the names are kept back.
-          tasks.map((t) => ({ kind: t.kind, lat: t.lat, lon: t.lon, shown: t.shown, ask: t.ask, questions: t.questions, converter: t.converter, seed: t.seed })),
+    // Evidence: the coordinates are on the picture itself, so only the names are kept back.
+    tasks: tasks.map((t) => ({ kind: t.kind, lat: t.lat, lon: t.lon, shown: t.shown, ask: t.ask, questions: t.questions, converter: t.converter, seed: t.seed })),
   };
 }
 
@@ -346,6 +349,8 @@ async function submit(env: Env, request: Request): Promise<Response> {
   if (typeof lat !== 'number' || typeof lon !== 'number' || !(Math.abs(lat) <= 90) || !(Math.abs(lon) <= 180)) {
     throw new HttpError(400, 'bad_location');
   }
+  const module = gameModule(s.game);
+  if (module) return submitToModule(env, s, module, submissionId, participantId, body.answer, { lat, lon }, body.round);
   const answer = validateAnswer(s.game, body.answer);
   if (s.game === 'mapping') return submitObject(env, s, submissionId, participantId, answer);
   if (s.game === 'cards' || s.game === 'puzzle') return submitCardTry(env, s, submissionId, participantId, answer);
@@ -373,16 +378,47 @@ async function submit(env: Env, request: Request): Promise<Response> {
     const first = await storedAnswer(env, s.id, participantId, body.round as number);
     return json({ ok: true, duplicate: stored.meta.changes === 0, ...answerResult(s, first) }, 201);
   }
+  throw new HttpError(400, 'bad_game');
+}
 
-  // One answer per student: sending again replaces the earlier one.
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM responses WHERE session_id = ? AND participant_id = ?').bind(s.id, participantId),
-    env.DB.prepare(
-      'INSERT INTO responses (id, session_id, participant_id, answer, lat, lon, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    ).bind(submissionId, s.id, participantId, JSON.stringify(answer), lat, lon, nowSec()),
-    bumpRev(env, s.id),
-  ]);
-  return json({ ok: true, duplicate: false }, 201);
+/** A game module's answer: checked, scored and stored here, the same way for every module. */
+async function submitToModule(
+  env: Env,
+  s: SessionRow,
+  module: GameModule,
+  submissionId: string,
+  participantId: string,
+  raw: unknown,
+  place: Place,
+  round: unknown,
+): Promise<Response> {
+  const settings = JSON.parse(s.settings) as Record<string, unknown>;
+  if (module.timed) requireRunning(s);
+  const answer = module.validateAnswer(raw, settings);
+  const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM responses WHERE session_id = ? AND participant_id != ?')
+    .bind(s.id, participantId)
+    .first<{ n: number }>();
+  if ((count?.n ?? 0) >= MAX_RESPONSES_PER_SESSION) throw new HttpError(429, 'session_full');
+
+  const scored = module.score(settings, answer, place, round);
+  const insert = env.DB.prepare(
+    `INSERT OR IGNORE INTO responses (id, session_id, participant_id, round, answer, lat, lon, distance_m, score, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(submissionId, s.id, participantId, scored.round, JSON.stringify(answer), place.lat, place.lon, scored.distance, scored.score, nowSec());
+
+  if (module.answers === 'replace') {
+    // One answer per student: sending again replaces the earlier one.
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM responses WHERE session_id = ? AND participant_id = ?').bind(s.id, participantId),
+      insert,
+      bumpRev(env, s.id),
+    ]);
+    return json({ ok: true, duplicate: false, ...module.feedback(settings, { round: scored.round, score: scored.score, distance_m: scored.distance }) }, 201);
+  }
+  // The first answer of a round counts: the right answer may come back with it.
+  const [stored] = await env.DB.batch([insert, bumpRev(env, s.id)]);
+  const first = await storedAnswer(env, s.id, participantId, scored.round);
+  return json({ ok: true, duplicate: stored.meta.changes === 0, ...(first ? module.feedback(settings, first) : {}) }, 201);
 }
 
 /** The clock must have been started, and not ended by more than the grace. */
@@ -552,8 +588,6 @@ async function submitEvidence(
   return json({ ok: true, duplicate: stored[0].meta.changes === 0, ...answerResult(s, first) }, stored[0].meta.changes === 0 ? 200 : 201);
 }
 
-type StoredAnswer = { round: number; score: number | null; distance_m: number | null };
-
 async function storedAnswer(env: Env, sessionId: string, participantId: string, round: number): Promise<StoredAnswer | null> {
   return env.DB.prepare('SELECT round, score, distance_m FROM responses WHERE session_id = ? AND participant_id = ? AND round = ?')
     .bind(sessionId, participantId, round)
@@ -566,6 +600,8 @@ async function storedAnswer(env: Env, sessionId: string, participantId: string, 
  */
 function answerResult(s: SessionRow, row: StoredAnswer | null): Record<string, unknown> {
   if (!row) return {};
+  const module = gameModule(s.game);
+  if (module) return module.feedback(JSON.parse(s.settings), row);
   const tasks = (JSON.parse(s.settings) as { tasks?: Record<string, unknown>[] }).tasks ?? [];
   if (TASK_GAMES.includes(s.game)) {
     const t = tasks[row.round];
@@ -627,8 +663,11 @@ async function createSession(env: Env, request: Request, actor: Actor): Promise<
     request,
   );
   const name = cleanName(body.name);
-  if (typeof body.game !== 'string' || !GAMES.includes(body.game)) throw new HttpError(400, 'bad_game');
-  const settings = TASK_GAMES.includes(body.game)
+  if (typeof body.game !== 'string' || !knownGame(body.game)) throw new HttpError(400, 'bad_game');
+  const module = gameModule(body.game);
+  const settings = module
+    ? module.settings(body as Record<string, unknown>)
+    : TASK_GAMES.includes(body.game)
     ? { tasks: validateTasks(body.game, body.tasks) }
     : body.game === 'cards'
       ? validateCards(body.cards)
@@ -682,7 +721,7 @@ async function updateSession(env: Env, request: Request, id: string, actor: Acto
 /** Starts the clock of a timed game for everyone, changes the time left, or with 0 seconds stops it. */
 async function setTimer(env: Env, request: Request, id: string, actor: Actor): Promise<Response> {
   const s = await sessionOr404(env, id, actor);
-  if (!TIMED_GAMES.includes(s.game)) throw new HttpError(400, 'bad_game');
+  if (!TIMED_GAMES.includes(s.game) && !gameModule(s.game)?.timed) throw new HttpError(400, 'bad_game');
   const { seconds, center, zoom } = await readBody<{ seconds?: unknown; center?: unknown; zoom?: unknown }>(request);
   if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 0 || seconds > MAX_TIMER_SEC) {
     throw new HttpError(400, 'bad_timer');
@@ -917,6 +956,14 @@ function restoredSettings(game: string, tasks: (Task | EvidenceTask)[], raw: Bac
   }
 }
 
+function restoredModuleSettings(module: GameModule, raw: unknown): Record<string, unknown> {
+  try {
+    return module.restoreSettings(raw ?? {});
+  } catch {
+    throw new HttpError(400, 'bad_backup');
+  }
+}
+
 async function restore(env: Env, request: Request, actor: Actor): Promise<Response> {
   const data = await readBody<{
     format?: unknown;
@@ -955,15 +1002,16 @@ async function restore(env: Env, request: Request, actor: Actor): Promise<Respon
   const known = actor.admin
     ? new Set((await env.DB.prepare('SELECT id FROM teachers').all<{ id: string }>()).results.map((r) => r.id))
     : new Set<string>();
-  const games = new Map<string, { game: string; tasks: (Task | EvidenceTask)[]; legend?: number[] }>();
+  const games = new Map<string, { game: string; tasks: (Task | EvidenceTask)[]; legend?: number[]; settings?: Record<string, unknown> }>();
   const statements: D1PreparedStatement[] = [];
   for (const s of data.sessions) {
-    if (typeof s.id !== 'string' || !ID_RE.test(s.id) || typeof s.game !== 'string' || !GAMES.includes(s.game) || typeof s.createdAt !== 'number') {
+    if (typeof s.id !== 'string' || !ID_RE.test(s.id) || typeof s.game !== 'string' || !knownGame(s.game) || typeof s.createdAt !== 'number') {
       throw new HttpError(400, 'bad_backup');
     }
-    const tasks = TASK_GAMES.includes(s.game) || s.game === 'evidence' ? restoredTasks(s.game, s.settings?.tasks) : [];
-    const settings = restoredSettings(s.game, tasks, s.settings);
-    games.set(s.id, { game: s.game, tasks, legend: (settings as Partial<LayoutSettings>).legend });
+    const module = gameModule(s.game);
+    const tasks = !module && (TASK_GAMES.includes(s.game) || s.game === 'evidence') ? restoredTasks(s.game, s.settings?.tasks) : [];
+    const settings = module ? restoredModuleSettings(module, s.settings) : restoredSettings(s.game, tasks, s.settings);
+    games.set(s.id, { game: s.game, tasks, legend: (settings as Partial<LayoutSettings>).legend, settings: settings as Record<string, unknown> });
     statements.push(
       env.DB.prepare(
         "INSERT OR IGNORE INTO sessions (id, name, game, status, token_hash, archived, settings, created_at, teacher_id) VALUES (?, ?, ?, 'closed', ?, ?, ?, ?, ?)",
@@ -993,6 +1041,37 @@ async function restore(env: Env, request: Request, actor: Actor): Promise<Respon
       Math.abs(r.lon) <= 180 &&
       typeof r.createdAt === 'number';
     if (!valid) throw new HttpError(400, 'bad_backup');
+    const module = gameModule(session.game);
+    if (module) {
+      // Checked and scored again by the module, so an edited file can't change a score.
+      let answer: Record<string, unknown>;
+      let scored: { round: number; distance: number | null; score: number | null };
+      try {
+        answer = module.validateAnswer(r.answer, session.settings!);
+        scored = module.score(session.settings!, answer, { lat: r.lat as number, lon: r.lon as number }, r.round);
+      } catch {
+        throw new HttpError(400, 'bad_backup');
+      }
+      statements.push(
+        env.DB.prepare(
+          `INSERT OR IGNORE INTO responses (id, session_id, participant_id, round, answer, lat, lon, distance_m, score, hidden, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).bind(
+          r.id as string,
+          r.sessionId as string,
+          r.participantId as string,
+          scored.round,
+          JSON.stringify(answer),
+          r.lat as number,
+          r.lon as number,
+          scored.distance,
+          scored.score,
+          r.hidden === true ? 1 : 0,
+          r.createdAt as number,
+        ),
+      );
+      continue;
+    }
     const answer = validateAnswer(session.game, r.answer);
     if (session.game === 'evidence') {
       // The round says the task and the question; it has to match the answer.

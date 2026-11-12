@@ -4,8 +4,6 @@ export class HttpError extends Error {
   }
 }
 
-const TRANSPORT = ['plane', 'train', 'car', 'bus', 'ship', 'bike', 'foot'];
-const COMPANY = ['alone', 'family', 'friends', 'class'];
 const MODES = ['to_map', 'read'];
 const FORMATS = ['dd', 'dm', 'dms', 'utm'];
 const MAX_TASKS = 30;
@@ -34,26 +32,13 @@ function oneOf(value: unknown, allowed: string[]): string {
   return value;
 }
 
-/** Returns only the known fields, so nothing else a client sends gets stored. */
+/** Returns only the known fields, so nothing else a client sends gets stored. Games in games/ check their own. */
 export function validateAnswer(game: string, raw: unknown): Record<string, unknown> {
   if (typeof raw !== 'object' || raw === null) throw new HttpError(400, 'bad_answer');
   const a = raw as Record<string, unknown>;
-  if (game === 'travel') {
-    const country = text(a.country, 2, false).toUpperCase();
-    if (country && !/^[A-Z]{2}$/.test(country)) throw new HttpError(400, 'bad_answer');
-    return {
-      place: text(a.place, 120, true),
-      country,
-      reason: text(a.reason, 500, false),
-      transport: oneOf(a.transport, TRANSPORT),
-      company: oneOf(a.company, COMPANY),
-    };
-  }
   if (game === 'coordinates') {
     return { raw: text(a.raw, 60, false), format: oneOf(a.format, FORMATS), mode: oneOf(a.mode, MODES) };
   }
-  // The round and the point say everything about an aerial answer.
-  if (game === 'aerial') return {};
   if (game === 'mapping') {
     const kind = oneOf(a.kind, KINDS);
     if (!Array.isArray(a.coords) || a.coords.length < MIN_VERTICES[kind] || a.coords.length > MAX_VERTICES) {

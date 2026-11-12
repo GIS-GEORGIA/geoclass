@@ -7,6 +7,7 @@ import 'cards_session_page.dart';
 import 'coordinates_session_page.dart';
 import 'evidence_session_page.dart';
 import 'export.dart';
+import 'games/registry.dart';
 import 'geo_map.dart';
 import 'mapping_session_page.dart';
 import 'models.dart';
@@ -18,8 +19,9 @@ import 'session_base.dart';
 import 'settings.dart';
 
 /// The page for a session, according to its game.
-Widget sessionPageFor(Settings settings, SessionInfo session, {bool showQr = false}) => switch (session.game) {
-      'travel' => TravelSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
+Widget sessionPageFor(Settings settings, SessionInfo session, {bool showQr = false}) =>
+    gameModule(session.game)?.teacherSession(settings, session, showQr: showQr) ??
+    switch (session.game) {
       'cards' => CardsSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
       'evidence' => EvidenceSessionPage(settings: settings, session: session, showQrOnOpen: showQr),
       'plates' => PlatesSessionPage(settings: settings, session: session, showQrOnOpen: showQr),

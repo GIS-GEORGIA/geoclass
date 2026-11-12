@@ -1,4 +1,7 @@
 import { env, exports } from 'cloudflare:workers';
+import { registerGame } from '../src/games/registry';
+import type { GameModule } from '../src/games/types';
+import { HttpError } from '../src/validate';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 const KEY = 'test-teacher-key';
@@ -1623,5 +1626,105 @@ describe('schema 0012 and backup version 3', () => {
     expect(await count('attempts', old.session.id)).toBe(0);
     expect(await count('participants', fresh.session.id)).toBe(2);
     expect(await count('attempts', fresh.session.id)).toBe(2);
+  });
+});
+
+describe('game registry', () => {
+  // A game that exists only in this test: registering this one module is all it takes.
+  type Quiz = { questions: { q: string; right: string }[] };
+  const quiz: GameModule<Quiz> = {
+    id: 'test-quiz',
+    timed: false,
+    answers: 'first',
+    settings(body) {
+      const questions = (body.quiz as Quiz | undefined)?.questions;
+      if (!Array.isArray(questions) || questions.length === 0) throw new HttpError(400, 'bad_quiz');
+      return { questions: questions.map((x) => ({ q: String(x.q), right: String(x.right) })) };
+    },
+    studentView: (s) => ({ questions: s.questions.map((x) => ({ q: x.q })) }),
+    validateAnswer(raw) {
+      const text = (raw as { text?: unknown } | null)?.text;
+      if (typeof text !== 'string' || text.length > 50) throw new HttpError(400, 'bad_answer');
+      return { text };
+    },
+    score(s, answer, _place, round) {
+      const question = typeof round === 'number' ? s.questions[round] : undefined;
+      if (!question) throw new HttpError(400, 'bad_round');
+      return { round: round as number, distance: null, score: answer.text === question.right ? 100 : 0 };
+    },
+    feedback: (s, row) => ({ score: row.score, right: s.questions[row.round]?.right }),
+    restoreSettings: (raw) => quiz.settings({ quiz: raw }),
+  };
+  registerGame(quiz);
+  registerGame({ ...quiz, id: 'test-quiz-timed', timed: true });
+
+  const settings = { quiz: { questions: [{ q: 'Capital of Georgia?', right: 'Tbilisi' }, { q: 'Highest peak?', right: 'Shkhara' }] } };
+  const play = (token: string, round: number, text: string, over: Record<string, unknown> = {}) =>
+    student('submit', { token, submissionId: id('sub'), participantId: 'quiz-student-01', answer: { text }, lat: 41.7, lon: 44.8, round, ...over });
+
+  async function quizSession(game = 'test-quiz') {
+    const res = await call('POST', 'sessions', { name: 'Quiz', game, ...settings });
+    expect(res.status).toBe(201);
+    return (await res.json()) as { session: { id: string }; token: string };
+  }
+
+  it('makes sessions of a registered game and still refuses unknown ones', async () => {
+    await quizSession();
+    expect((await call('POST', 'sessions', { name: 'Q', game: 'test-quiz' })).status).toBe(400);
+    expect((await call('POST', 'sessions', { name: 'Q', game: 'not-registered' })).status).toBe(400);
+  });
+
+  it('gives students the module’s view, without the answers', async () => {
+    const { token } = await quizSession();
+    const joined = (await (await student('join', { token })).json()) as { game: string; settings: unknown };
+    expect(joined.game).toBe('test-quiz');
+    expect(joined.settings).toEqual({ questions: [{ q: 'Capital of Georgia?' }, { q: 'Highest peak?' }] });
+  });
+
+  it('checks, scores and gives feedback; the first answer counts', async () => {
+    const { session, token } = await quizSession();
+    const first = await play(token, 0, 'Tbilisi');
+    expect(first.status).toBe(201);
+    expect(await first.json()).toEqual({ ok: true, duplicate: false, score: 100, right: 'Tbilisi' });
+    expect(await (await play(token, 0, 'Batumi')).json()).toEqual({ ok: true, duplicate: true, score: 100, right: 'Tbilisi' });
+    expect(await (await play(token, 1, 'Kazbek')).json()).toMatchObject({ score: 0, right: 'Shkhara' });
+    expect((await play(token, 5, 'x')).status).toBe(400);
+    expect((await play(token, 1, 'x'.repeat(51))).status).toBe(400);
+
+    const sub = id('sub');
+    await play(token, 1, 'again', { submissionId: sub, participantId: 'quiz-student-02' });
+    expect(await (await play(token, 1, 'changed', { submissionId: sub, participantId: 'quiz-student-02' })).json()).toMatchObject({ duplicate: true, score: 0 });
+    const rows = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { responses: { round: number; score: number }[] };
+    expect(rows.responses.map((r) => [r.round, r.score])).toEqual([
+      [0, 100],
+      [1, 0],
+      [1, 0],
+    ]);
+  });
+
+  it('restores through the module, scoring the answers again', async () => {
+    const { session, token } = await quizSession();
+    await play(token, 0, 'Batumi');
+    const file = (await (await call('GET', 'backup')).json()) as { responses: { answer: { text: string }; score: number }[] };
+    file.responses[0].answer.text = 'Tbilisi';
+    file.responses[0].score = 0;
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    const rows = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { responses: { score: number }[] };
+    expect(rows.responses[0].score).toBe(100);
+
+    await call('DELETE', `sessions/${session.id}`);
+    (file as unknown as { sessions: { settings: unknown }[] }).sessions[0].settings = { questions: [] };
+    expect((await call('POST', 'restore', file)).status).toBe(400);
+  });
+
+  it('a timed module gets the teacher’s clock', async () => {
+    const plain = await quizSession();
+    expect((await call('POST', `sessions/${plain.session.id}/timer`, { seconds: 60 })).status).toBe(400);
+
+    const { session, token } = await quizSession('test-quiz-timed');
+    expect(await (await play(token, 0, 'Tbilisi')).json()).toMatchObject({ error: 'not_started' });
+    expect((await call('POST', `sessions/${session.id}/timer`, { seconds: 60 })).status).toBe(200);
+    expect((await play(token, 0, 'Tbilisi')).status).toBe(201);
   });
 });
