@@ -10,8 +10,10 @@
     "directory": "../build/web",
     // The Worker reads card pictures through this to serve them under ids that don't give away the pairs.
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api/*", "/areas/*"]
   },
+  // Elevation packages for the terrain games (tool/areas/build_area.py), served at /areas/*.
+  "r2_buckets": [{ "binding": "AREAS", "bucket_name": "geoclass-areas" }],
   "d1_databases": [
     {
       "binding": "DB",

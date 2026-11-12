@@ -22,6 +22,7 @@ import {
 import { KEEP_SEC, deleteOld, deleteOldAuthFailures, deleteOldTeachers } from './retention';
 import { gameModule } from './games/registry';
 import type { GameModule, Place, StoredAnswer } from './games/types';
+import { serveArea } from './areas';
 
 const MAX_RESPONSES_PER_SESSION = 2000;
 const MAX_BODY_BYTES = 8 * 1024;
@@ -1357,7 +1358,9 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     try {
-      return await route(request, env, new URL(request.url));
+      const url = new URL(request.url);
+      if (url.pathname.startsWith('/areas/')) return await serveArea(request, env, url);
+      return await route(request, env, url);
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.key }, e.status);
       console.error(e);
