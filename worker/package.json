@@ -9,6 +9,7 @@
     "test": "vitest run",
     "key": "node scripts/new-teacher-key.mjs",
     "db:local": "wrangler d1 migrations apply geoclass --local",
+    "check:migration": "node scripts/check-migration.mjs",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {

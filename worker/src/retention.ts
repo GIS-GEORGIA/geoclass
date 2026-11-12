@@ -6,8 +6,10 @@ const nowSec = () => Math.floor(Date.now() / 1000);
 /** Run every night: deletes sessions, and their answers, made more than KEEP_SEC ago. */
 export async function deleteOld(env: Env, now = nowSec()): Promise<number> {
   const before = now - KEEP_SEC;
-  const [, sessions] = await env.DB.batch([
+  const [, , , sessions] = await env.DB.batch([
     env.DB.prepare('DELETE FROM responses WHERE session_id IN (SELECT id FROM sessions WHERE created_at < ?)').bind(before),
+    env.DB.prepare('DELETE FROM attempts WHERE session_id IN (SELECT id FROM sessions WHERE created_at < ?)').bind(before),
+    env.DB.prepare('DELETE FROM participants WHERE session_id IN (SELECT id FROM sessions WHERE created_at < ?)').bind(before),
     env.DB.prepare('DELETE FROM sessions WHERE created_at < ?').bind(before),
   ]);
   return sessions.meta.changes ?? 0;

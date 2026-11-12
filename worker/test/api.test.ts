@@ -1508,3 +1508,120 @@ describe('teacher accounts', () => {
     expect(gone.teacher.id).toBeTruthy();
   });
 });
+
+describe('schema 0012 and backup version 3', () => {
+  const now = () => Math.floor(Date.now() / 1000);
+
+  async function withStudent() {
+    const { session, token } = await newSession();
+    await send(token, { participantId: 'student-pid-0001' });
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO participants (session_id, pid, nickname, created_at) VALUES (?, ?, ?, ?)').bind(session.id, 'student-pid-0001', 'მწვანე მელა', now()),
+      env.DB.prepare('INSERT INTO participants (session_id, pid, created_at) VALUES (?, ?, ?)').bind(session.id, 'student-pid-0002', now()),
+      env.DB.prepare("INSERT INTO attempts (id, session_id, pid, answer, created_at) VALUES (?, ?, ?, '{}', ?)").bind(id('att'), session.id, 'student-pid-0001', now()),
+      env.DB.prepare("INSERT INTO attempts (id, session_id, pid, answer, created_at) VALUES (?, ?, ?, '{}', ?)").bind(id('att'), session.id, 'student-pid-0002', now()),
+    ]);
+    return { session, token };
+  }
+
+  const count = async (table: string, sessionId: string) =>
+    (await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE session_id = ?`).bind(sessionId).first<{ n: number }>())!.n;
+
+  type File = { version: number; sessions: unknown[]; responses: unknown[]; participants: { nickname: string | null; sessionId: string }[]; attempts: unknown[] };
+  const exported = async () => (await (await call('GET', 'backup')).json()) as File;
+
+  it('the database takes any game name and answers without a place; the Worker still allows only its games', async () => {
+    await env.DB.prepare("INSERT INTO sessions (id, name, game, token_hash, created_at) VALUES ('future-game-01', 'F', 'terrain', 'tok-f', 1)").run();
+    const { session } = await newSession();
+    await env.DB.prepare("INSERT INTO responses (id, session_id, participant_id, answer, lat, lon, created_at) VALUES ('no-place-0001', ?, 'student-pid-0009', ?, NULL, NULL, 1)")
+      .bind(session.id, JSON.stringify(answer))
+      .run();
+    const rows = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { responses: { lat: number | null; lon: number | null }[] };
+    expect(rows.responses[0]).toMatchObject({ lat: null, lon: null });
+    expect((await call('POST', 'sessions', { name: 'X', game: 'terrain' })).status).toBe(400);
+  });
+
+  it('a backup is version 3 and carries participants and attempts', async () => {
+    const { session } = await withStudent();
+    const file = await exported();
+    expect(file.version).toBe(3);
+    expect(file.participants).toHaveLength(2);
+    expect(file.participants.find((p) => p.nickname)).toMatchObject({ sessionId: session.id, participantId: 'student-pid-0001', nickname: 'მწვანე მელა' });
+    expect(file.attempts).toHaveLength(2);
+  });
+
+  it('restores participants, and refuses attempts until a game can score them again', async () => {
+    const { session } = await withStudent();
+    const file = await exported();
+    await call('DELETE', `sessions/${session.id}`);
+
+    expect((await call('POST', 'restore', file)).status).toBe(400);
+    expect(await count('sessions', session.id).catch(() => 0)).toBe(0);
+
+    const restored = await call('POST', 'restore', { ...file, attempts: [] });
+    expect(restored.status).toBe(200);
+    expect(await restored.json()).toMatchObject({ sessions: 1, responses: 1, participants: 2 });
+    expect(await count('participants', session.id)).toBe(2);
+    expect(await count('attempts', session.id)).toBe(0);
+  });
+
+  it('refuses bad participants, changing nothing', async () => {
+    const { session } = await withStudent();
+    const file = { ...(await exported()), attempts: [] };
+    await call('DELETE', `sessions/${session.id}`);
+    const bad = [
+      { nickname: 'x'.repeat(21) },
+      { nickname: '' },
+      { nickname: 5 },
+      { participantId: 'x' },
+      { sessionId: 'not-in-this-file' },
+      { createdAt: 'yesterday' },
+    ];
+    for (const change of bad) {
+      const participants = [{ ...file.participants[0], ...change }];
+      expect((await call('POST', 'restore', { ...file, participants })).status).toBe(400);
+    }
+    expect((await call('POST', 'restore', { ...file, participants: 'all' })).status).toBe(400);
+    expect((await exported()).sessions).toHaveLength(0);
+  });
+
+  it('still restores a version 2 file, which has no participants', async () => {
+    const { session } = await withStudent();
+    const { participants: _p, attempts: _a, ...file } = await exported();
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', { ...file, version: 2 })).status).toBe(200);
+    expect(await count('responses', session.id)).toBe(1);
+    expect(await count('participants', session.id)).toBe(0);
+  });
+
+  it('forget deletes the student’s attempts and nickname too, and nobody else’s', async () => {
+    const { session, token } = await withStudent();
+    expect(await (await student('forget', { token, participantId: 'student-pid-0001' })).json()).toEqual({ deleted: 1 });
+    const left = await env.DB.prepare('SELECT pid FROM participants WHERE session_id = ? UNION ALL SELECT pid FROM attempts WHERE session_id = ?')
+      .bind(session.id, session.id)
+      .all<{ pid: string }>();
+    expect(left.results.map((r) => r.pid)).toEqual(['student-pid-0002', 'student-pid-0002']);
+  });
+
+  it('a reset, deleting the session, and the six-month clean-up remove participants and attempts', async () => {
+    const reset = await withStudent();
+    expect((await call('DELETE', `sessions/${reset.session.id}/responses`)).status).toBe(200);
+    expect(await count('participants', reset.session.id)).toBe(0);
+    expect(await count('attempts', reset.session.id)).toBe(0);
+
+    const gone = await withStudent();
+    await call('DELETE', `sessions/${gone.session.id}`);
+    expect(await count('participants', gone.session.id)).toBe(0);
+    expect(await count('attempts', gone.session.id)).toBe(0);
+
+    const { deleteOld, KEEP_SEC } = await import('../src/retention');
+    const old = await withStudent();
+    const fresh = await withStudent();
+    await env.DB.prepare('UPDATE sessions SET created_at = ? WHERE id = ?').bind(now() - KEEP_SEC - 60, old.session.id).run();
+    expect(await deleteOld(env)).toBe(1);
+    expect(await count('participants', old.session.id)).toBe(0);
+    expect(await count('attempts', old.session.id)).toBe(0);
+    expect(await count('participants', fresh.session.id)).toBe(2);
+    expect(await count('attempts', fresh.session.id)).toBe(2);
+  });
+});

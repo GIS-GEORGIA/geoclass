@@ -169,8 +169,8 @@ type ResponseRow = {
   participant_id: string;
   round: number;
   answer: string;
-  lat: number;
-  lon: number;
+  lat: number | null; // NULL is allowed since 0012, for games without a place
+  lon: number | null;
   distance_m: number | null;
   score: number | null;
   hidden: number;
@@ -590,6 +590,9 @@ async function forget(env: Env, request: Request): Promise<Response> {
   if (typeof participantId !== 'string' || !ID_RE.test(participantId)) throw new HttpError(400, 'bad_id');
   const [deleted] = await env.DB.batch([
     env.DB.prepare('DELETE FROM responses WHERE session_id = ? AND participant_id = ?').bind(s.id, participantId),
+    // New games keep their answers and the student's nickname here (0012).
+    env.DB.prepare('DELETE FROM attempts WHERE session_id = ? AND pid = ?').bind(s.id, participantId),
+    env.DB.prepare('DELETE FROM participants WHERE session_id = ? AND pid = ?').bind(s.id, participantId),
     bumpRev(env, s.id),
   ]);
   return json({ deleted: deleted.meta.changes ?? 0 });
@@ -753,6 +756,8 @@ async function resetResponses(env: Env, id: string, actor: Actor): Promise<Respo
   await sessionOr404(env, id, actor);
   await env.DB.batch([
     env.DB.prepare('DELETE FROM responses WHERE session_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM attempts WHERE session_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM participants WHERE session_id = ?').bind(id),
     // Tells students' devices to forget their progress in the game.
     env.DB.prepare("UPDATE sessions SET settings = json_remove(json_set(settings, '$.resetAt', unixepoch()), '$.endsAt', '$.startedAt') WHERE id = ?").bind(id),
     bumpRev(env, id),
@@ -802,17 +807,68 @@ async function backup(env: Env, url: URL, actor: Actor): Promise<Response> {
     .bind(...scope)
     .all<SessionRow>();
   if (only && sessions.results.length === 0) throw new HttpError(404, 'not_found');
-  const responses = await env.DB.prepare(`SELECT * FROM responses WHERE session_id IN (SELECT id FROM sessions ${mine}) ORDER BY created_at`)
+  const inScope = `session_id IN (SELECT id FROM sessions ${mine})`;
+  const responses = await env.DB.prepare(`SELECT * FROM responses WHERE ${inScope} ORDER BY created_at`)
     .bind(...scope)
     .all<ResponseRow>();
+  const participants = await env.DB.prepare(`SELECT * FROM participants WHERE ${inScope} ORDER BY created_at, pid`)
+    .bind(...scope)
+    .all<ParticipantRow>();
+  const attempts = await env.DB.prepare(`SELECT * FROM attempts WHERE ${inScope} ORDER BY created_at, id`)
+    .bind(...scope)
+    .all<AttemptRow>();
   return json({
     format: 'geoclass-backup',
-    version: 2,
+    // 3 adds participants and attempts (0012). Versions 1 and 2 are still restored.
+    version: 3,
     exportedAt: nowSec(),
     sessions: sessions.results.map((s) => sessionJson(s)),
     responses: responses.results.map(responseJson),
+    participants: participants.results.map((p) => ({ sessionId: p.session_id, participantId: p.pid, nickname: p.nickname, createdAt: p.created_at })),
+    attempts: attempts.results.map(attemptJson),
   });
 }
+
+type ParticipantRow = { session_id: string; pid: string; nickname: string | null; created_at: number };
+
+type AttemptRow = {
+  id: string;
+  session_id: string;
+  pid: string;
+  task: number;
+  kind: string;
+  answer: string;
+  score: number | null;
+  correct: number | null;
+  topics: string | null;
+  hints_used: number;
+  duration_ms: number | null;
+  geom: string | null;
+  created_at: number;
+};
+
+function attemptJson(a: AttemptRow) {
+  return {
+    id: a.id,
+    sessionId: a.session_id,
+    participantId: a.pid,
+    task: a.task,
+    kind: a.kind,
+    answer: JSON.parse(a.answer),
+    score: a.score,
+    correct: a.correct === null ? null : a.correct === 1,
+    topics: a.topics === null ? null : JSON.parse(a.topics),
+    hintsUsed: a.hints_used,
+    durationMs: a.duration_ms,
+    geom: a.geom === null ? null : JSON.parse(a.geom),
+    createdAt: a.created_at,
+  };
+}
+
+/** Nicknames in a backup: optional, 1 to 20 characters, as the participants table allows. */
+const MAX_NICKNAME = 20;
+
+type BackupParticipant = { sessionId?: unknown; participantId?: unknown; nickname?: unknown; createdAt?: unknown };
 
 type BackupSession = { id?: unknown; name?: unknown; game?: unknown; archived?: unknown; teacherId?: unknown; settings?: { tasks?: unknown; pairs?: unknown; arrow?: unknown; rotation?: unknown; answers?: unknown }; createdAt?: unknown };
 type BackupResponse = {
@@ -862,11 +918,23 @@ function restoredSettings(game: string, tasks: (Task | EvidenceTask)[], raw: Bac
 }
 
 async function restore(env: Env, request: Request, actor: Actor): Promise<Response> {
-  const data = await readBody<{ format?: unknown; version?: unknown; sessions?: BackupSession[]; responses?: BackupResponse[] }>(
-    request,
-    MAX_RESTORE_BYTES,
-  );
-  if (data.format !== 'geoclass-backup' || (data.version !== 1 && data.version !== 2) || !Array.isArray(data.sessions) || !Array.isArray(data.responses)) {
+  const data = await readBody<{
+    format?: unknown;
+    version?: unknown;
+    sessions?: BackupSession[];
+    responses?: BackupResponse[];
+    participants?: BackupParticipant[];
+    attempts?: unknown[];
+  }>(request, MAX_RESTORE_BYTES);
+  if (data.format !== 'geoclass-backup' || ![1, 2, 3].includes(data.version as number) || !Array.isArray(data.sessions) || !Array.isArray(data.responses)) {
+    throw new HttpError(400, 'bad_backup');
+  }
+  // Version 3 adds participants and attempts; older files have neither.
+  const participants = data.version === 3 ? data.participants ?? [] : [];
+  if (!Array.isArray(participants)) throw new HttpError(400, 'bad_backup');
+  // No game writes attempts yet. Until one does, with its own check that works the score out again,
+  // a file that has some can't be restored faithfully, so it is refused rather than trusted.
+  if (data.version === 3 && data.attempts !== undefined && !(Array.isArray(data.attempts) && data.attempts.length === 0)) {
     throw new HttpError(400, 'bad_backup');
   }
 
@@ -982,11 +1050,31 @@ async function restore(env: Env, request: Request, actor: Actor): Promise<Respon
     );
   }
 
+  for (const p of participants) {
+    const nickname = p.nickname ?? null;
+    const valid =
+      typeof p.sessionId === 'string' &&
+      games.has(p.sessionId) &&
+      typeof p.participantId === 'string' &&
+      ID_RE.test(p.participantId) &&
+      (nickname === null || (typeof nickname === 'string' && nickname.length >= 1 && [...nickname].length <= MAX_NICKNAME)) &&
+      typeof p.createdAt === 'number';
+    if (!valid) throw new HttpError(400, 'bad_backup');
+    statements.push(
+      env.DB.prepare('INSERT OR IGNORE INTO participants (session_id, pid, nickname, created_at) VALUES (?, ?, ?, ?)').bind(
+        p.sessionId as string,
+        p.participantId as string,
+        nickname,
+        p.createdAt as number,
+      ),
+    );
+  }
+
   for (const id of games.keys()) statements.push(bumpRev(env, id));
   for (let i = 0; i < statements.length; i += D1_BATCH_SIZE) {
     await env.DB.batch(statements.slice(i, i + D1_BATCH_SIZE));
   }
-  return json({ ok: true, sessions: games.size, responses: data.responses.length });
+  return json({ ok: true, sessions: games.size, responses: data.responses.length, participants: participants.length });
 }
 
 // --- Teacher accounts (owner only) ---
