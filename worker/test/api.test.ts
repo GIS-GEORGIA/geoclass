@@ -47,6 +47,7 @@ async function responses(sessionId: string) {
 beforeEach(async () => {
   await env.DB.exec('DELETE FROM sessions');
   await env.DB.exec('DELETE FROM auth_failures');
+  await env.DB.exec('DELETE FROM teachers');
 });
 
 describe('teacher access', () => {
@@ -1110,5 +1111,178 @@ describe('privacy', () => {
     expect(left.results.map((r) => r.session_id)).toEqual([fresh.session.id]);
     expect((await call('GET', `sessions/${old.session.id}/responses`)).status).toBe(404);
     expect(await deleteOld(env)).toBe(0);
+  });
+});
+
+describe('teacher accounts', () => {
+  async function newTeacher(name = 'Nino', amount = 30, unit = 'day') {
+    const res = await call('POST', 'teachers', { name, amount, unit });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { teacher: { id: string; expiresAt: number; active: boolean }; key: string };
+    return { ...body, auth: { Authorization: `Bearer ${body.key}` } };
+  }
+  const as = (headers: Record<string, string>) => ({
+    get: (path: string) => call('GET', path, undefined, headers),
+    post: (path: string, body?: unknown) => call('POST', path, body ?? {}, headers),
+    patch: (path: string, body: unknown) => call('PATCH', path, body, headers),
+    del: (path: string) => call('DELETE', path, undefined, headers),
+  });
+
+  it('the owner makes a teacher with a validity in days, months or years; the key works and says who it is', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const { teacher, key, auth: tAuth } = await newTeacher('Nino', 30, 'day');
+    expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(teacher.active).toBe(true);
+    expect(Math.abs(teacher.expiresAt - (now + 30 * 86400))).toBeLessThan(5);
+    const me = await (await call('GET', 'me', undefined, tAuth)).json();
+    expect(me).toEqual({ ok: true, role: 'teacher', name: 'Nino', expiresAt: teacher.expiresAt });
+    expect(await (await call('GET', 'me')).json()).toEqual({ ok: true, role: 'owner', name: null, expiresAt: null });
+
+    const month = (await newTeacher('Month', 1, 'month')).teacher.expiresAt - now;
+    expect(month).toBeGreaterThanOrEqual(28 * 86400);
+    expect(month).toBeLessThanOrEqual(31 * 86400 + 5);
+    const year = (await newTeacher('Year', 2, 'year')).teacher.expiresAt - now;
+    expect(year).toBeGreaterThanOrEqual(730 * 86400);
+    // Only the hash is stored.
+    const stored = await env.DB.prepare('SELECT key_hash FROM teachers WHERE name = ?').bind('Nino').first<{ key_hash: string }>();
+    expect(stored?.key_hash).not.toBe(key);
+    expect(stored?.key_hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('refuses a bad validity', async () => {
+    for (const body of [
+      { name: 'X', amount: 0, unit: 'day' },
+      { name: 'X', amount: 1.5, unit: 'day' },
+      { name: 'X', amount: 2, unit: 'week' },
+      { name: 'X', amount: 6, unit: 'year' },
+      { name: 'X' },
+      { name: '', amount: 1, unit: 'day' },
+    ]) {
+      expect((await call('POST', 'teachers', body)).status).toBe(400);
+    }
+  });
+
+  it('only the owner manages teachers', async () => {
+    const { teacher, auth: tAuth } = await newTeacher();
+    expect((await as(tAuth).get('teachers')).status).toBe(403);
+    expect((await as(tAuth).post('teachers', { name: 'Y', amount: 1, unit: 'day' })).status).toBe(403);
+    expect((await as(tAuth).patch(`teachers/${teacher.id}`, { amount: 5, unit: 'year' })).status).toBe(403);
+    const list = (await (await call('GET', 'teachers')).json()) as { teachers: { id: string; name: string; sessions: number }[] };
+    expect(list.teachers).toEqual([expect.objectContaining({ id: teacher.id, name: 'Nino', sessions: 0 })]);
+  });
+
+  it("a teacher sees and changes only their own sessions; the owner sees all, with the teacher's name", async () => {
+    const { auth: tAuth } = await newTeacher();
+    const t = as(tAuth);
+    const owners = await newSession();
+    const mineRes = await t.post('sessions', { name: 'VII b', game: 'travel' });
+    expect(mineRes.status).toBe(201);
+    const mine = (await mineRes.json()) as { session: { id: string; teacherId: string } };
+    expect(mine.session.teacherId).toBeTruthy();
+
+    const seen = (await (await t.get('sessions')).json()) as { sessions: { id: string; teacherName?: string }[] };
+    expect(seen.sessions.map((s) => s.id)).toEqual([mine.session.id]);
+    expect(seen.sessions[0].teacherName).toBeUndefined();
+    const all = (await (await call('GET', 'sessions')).json()) as { sessions: { id: string; teacherName?: string }[] };
+    expect(all.sessions.map((s) => s.id).sort()).toEqual([owners.session.id, mine.session.id].sort());
+    expect(all.sessions.find((s) => s.id === mine.session.id)?.teacherName).toBe('Nino');
+    expect(all.sessions.find((s) => s.id === owners.session.id)?.teacherName).toBeUndefined();
+
+    const other = owners.session.id;
+    expect((await t.get(`sessions/${other}/responses`)).status).toBe(404);
+    expect((await t.patch(`sessions/${other}`, { status: 'paused' })).status).toBe(404);
+    expect((await t.post(`sessions/${other}/token`)).status).toBe(404);
+    expect((await t.del(`sessions/${other}/responses`)).status).toBe(404);
+    expect((await t.del(`sessions/${other}`)).status).toBe(404);
+    expect((await responses(other)).session.status).toBe('open');
+
+    expect((await t.get(`sessions/${mine.session.id}/responses`)).status).toBe(200);
+    expect((await t.patch(`sessions/${mine.session.id}`, { status: 'paused' })).status).toBe(200);
+    expect((await t.post(`sessions/${mine.session.id}/token`)).status).toBe(200);
+    // The owner can work in a teacher's session too.
+    expect((await call('PATCH', `sessions/${mine.session.id}`, { status: 'open' })).status).toBe(200);
+  });
+
+  it("a teacher can't hide or delete an answer in someone else's session", async () => {
+    const { auth: tAuth } = await newTeacher();
+    const { session, token } = await newSession();
+    expect((await send(token)).status).toBe(201);
+    const [r] = (await responses(session.id)).responses;
+    expect((await as(tAuth).patch(`responses/${r.id}`, { hidden: true })).status).toBe(404);
+    expect((await as(tAuth).del(`responses/${r.id}`)).status).toBe(404);
+    expect((await responses(session.id)).responses).toEqual([expect.objectContaining({ id: r.id, hidden: false })]);
+  });
+
+  it("backs up only the teacher's own sessions, and restores them as theirs", async () => {
+    const { teacher, auth: tAuth } = await newTeacher();
+    const t = as(tAuth);
+    const owners = await newSession();
+    expect((await send(owners.token)).status).toBe(201);
+    const mine = (await (await t.post('sessions', { name: 'VII b', game: 'travel' })).json()) as { session: { id: string }; token: string };
+    expect((await send(mine.token)).status).toBe(201);
+
+    const file = (await (await t.get('backup')).json()) as { sessions: { id: string; teacherId: string }[]; responses: { sessionId: string }[] };
+    expect(file.sessions.map((s) => s.id)).toEqual([mine.session.id]);
+    expect(file.responses.map((r) => r.sessionId)).toEqual([mine.session.id]);
+    expect((await t.get(`backup?session=${owners.session.id}`)).status).toBe(404);
+
+    expect((await t.del(`sessions/${mine.session.id}`)).status).toBe(200);
+    expect((await t.post('restore', file)).status).toBe(200);
+    const back = await env.DB.prepare('SELECT teacher_id FROM sessions WHERE id = ?').bind(mine.session.id).first<{ teacher_id: string }>();
+    expect(back?.teacher_id).toBe(teacher.id);
+
+    // The owner's full backup keeps who made each session.
+    const full = (await (await call('GET', 'backup')).json()) as { sessions: { id: string; teacherId: string | null }[] };
+    expect(full.sessions.find((s) => s.id === mine.session.id)?.teacherId).toBe(teacher.id);
+    expect(full.sessions.find((s) => s.id === owners.session.id)?.teacherId).toBeNull();
+    await env.DB.exec('DELETE FROM sessions');
+    expect((await call('POST', 'restore', full)).status).toBe(200);
+    const again = await env.DB.prepare('SELECT teacher_id FROM sessions WHERE id = ?').bind(mine.session.id).first<{ teacher_id: string }>();
+    expect(again?.teacher_id).toBe(teacher.id);
+  });
+
+  it("refuses a teacher's restore that names someone else's session, and changes nothing", async () => {
+    const { auth: tAuth } = await newTeacher();
+    const owners = await newSession();
+    const forged = {
+      format: 'geoclass-backup',
+      version: 2,
+      sessions: [{ id: owners.session.id, name: 'X', game: 'travel', createdAt: 1 }],
+      responses: [{ id: 'forged-0000-1', sessionId: owners.session.id, participantId: 'forged-0000-2', answer, lat: 1, lon: 1, createdAt: 1 }],
+    };
+    const res = await as(tAuth).post('restore', forged);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'not_yours' });
+    expect((await responses(owners.session.id)).responses).toEqual([]);
+  });
+
+  it('a revoked or expired key stops working, says why, and works again when given back or extended', async () => {
+    const { teacher, auth: tAuth } = await newTeacher();
+    const me = () => call('GET', 'me', undefined, tAuth);
+    expect((await call('PATCH', `teachers/${teacher.id}`, { revoked: true })).status).toBe(200);
+    const revoked = await me();
+    expect(revoked.status).toBe(401);
+    expect(await revoked.json()).toEqual({ error: 'key_expired' });
+    expect((await call('PATCH', `teachers/${teacher.id}`, { revoked: false })).status).toBe(200);
+    expect((await me()).status).toBe(200);
+
+    await env.DB.prepare('UPDATE teachers SET expires_at = ? WHERE id = ?').bind(Math.floor(Date.now() / 1000) - 1, teacher.id).run();
+    expect((await me()).status).toBe(401);
+    const extended = (await (await call('PATCH', `teachers/${teacher.id}`, { amount: 1, unit: 'year' })).json()) as { teacher: { active: boolean } };
+    expect(extended.teacher.active).toBe(true);
+    expect((await me()).status).toBe(200);
+  });
+
+  it('deletes teachers that ended long ago and own no session', async () => {
+    const { deleteOldTeachers, KEEP_SEC } = await import('../src/retention');
+    const gone = await newTeacher('Gone');
+    const kept = await newTeacher('Kept');
+    expect((await as(kept.auth).post('sessions', { name: 'X', game: 'travel' })).status).toBe(201);
+    const later = Math.floor(Date.now() / 1000) + 31 * 86400 + KEEP_SEC + 1;
+    expect(await deleteOldTeachers(env)).toBe(0);
+    expect(await deleteOldTeachers(env, later)).toBe(1);
+    const left = (await env.DB.prepare('SELECT name FROM teachers').all<{ name: string }>()).results.map((r) => r.name);
+    expect(left).toEqual(['Kept']);
+    expect(gone.teacher.id).toBeTruthy();
   });
 });

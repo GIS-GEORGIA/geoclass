@@ -102,7 +102,7 @@ class _KeyPageState extends State<_KeyPage> {
       await Api(teacherKey: key).checkKey();
       await widget.settings.setTeacherKey(key);
     } on ApiError catch (e) {
-      setState(() => _error = e.status == 401 ? 'key_wrong' : e.key);
+      setState(() => _error = e.status == 401 && e.key != 'key_expired' ? 'key_wrong' : e.key);
     } on NoConnection {
       setState(() => _error = 'no_connection');
     } finally {
@@ -425,6 +425,7 @@ class _SessionListState extends State<_SessionList> {
                                 }),
                                 title: Text(x.name),
                                 subtitle: Text([
+                                  if (x.teacherName != null) s.f('session_by', [x.teacherName!]),
                                   s['game_${x.game}'],
                                   s['status_${x.status}'],
                                   s.f('answers_count', [x.responses ?? 0]),

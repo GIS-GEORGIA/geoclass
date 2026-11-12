@@ -31,6 +31,7 @@
   <li><b>ტექნიკური ჟურნალები:</b> სერვერის მოთხოვნების ჩანაწერები (დრო, მისამართი, პასუხის კოდი და ტექნიკური დეტალები, მათ შორის შეიძლება IP მისამართიც) შეცდომების საპოვნელად. მათ Cloudflare ინახავს არაუმეტეს 7 დღისა. ზედმეტად ბევრი მოთხოვნის შესაზღუდად IP მისამართი წამიერად გამოიყენება და ჩვენს მონაცემთა ბაზაში არ ინახება. გამონაკლისია მასწავლებლის გასაღების არასწორი შეყვანა: მისი რაოდენობის შესაზღუდად ბაზაში ინახება საიდუმლო გასაღებით გამოთვლილი IP მისამართის ჰეში (თავად მისამართი არა) და მცდელობების რიცხვი, არაუმეტეს 1 დღისა.</li>
 </ul>
 <p>მოწყობილობაზე რჩება ენისა და თემის არჩევანი, თამაშის პროგრესი და ჯერ გაუგზავნელი პასუხები. ბარათების თამაშში Android აპს შეუძლია ტელეფონის კომპასის წაკითხვა, რომ ბარათი ჩრდილოეთისკენ შემოაბრუნოს. ეს მონაცემი მხოლოდ მოწყობილობაზე გამოიყენება, არ ინახება და არსად იგზავნება. მასწავლებლის მოწყობილობაზე ინახება მასწავლებლის გასაღები და QR კოდების ბმულები.</p>
+<p>თუ ადმინისტრატორი სხვა მასწავლებელს გასაღებს აძლევს, სერვერზე ინახება ამ მასწავლებლის სახელი (როგორც ადმინისტრატორმა ჩაწერა), გასაღების ჰეში და მოქმედების ვადა. ეს ჩანაწერი იშლება ვადის გასვლიდან ან გაუქმებიდან 6 თვეში, როცა მისი სესიები უკვე წაშლილია.</p>
 
 <h2>რას არ ვაკეთებთ</h2>
 <ul>
@@ -107,6 +108,7 @@
   <li><b>Technical logs:</b> records of server requests (time, address, response code and technical details, which may include the IP address) for finding faults. Cloudflare keeps them for no more than 7 days. To limit floods of requests the IP address is used for a moment and is not stored in our database. One exception: to limit wrong teacher-key attempts, the database keeps a keyed hash of the IP address (not the address itself) and the number of attempts, for no more than 1 day.</li>
 </ul>
 <p>The device keeps the language and theme choice, game progress and answers not sent yet. In the cards game the Android app can read the phone's compass to turn a card toward north. That reading is used on the device only and is never stored or sent. A teacher's device keeps the teacher key and the QR code links.</p>
+<p>When the administrator gives another teacher a key, the server keeps that teacher's name (as the administrator typed it), the key's hash and its validity. The record is deleted 6 months after the key expired or was revoked, once its sessions are gone.</p>
 
 <h2>What we don't do</h2>
 <ul>

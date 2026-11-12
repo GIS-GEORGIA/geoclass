@@ -75,6 +75,21 @@ class Api {
   // Teacher
   Future<void> checkKey() => _send('GET', 'me');
 
+  /// Who this key is: {role: 'owner' | 'teacher', name, expiresAt}.
+  Future<Map<String, dynamic>> me() => _send('GET', 'me');
+
+  // Owner only: teacher accounts.
+  Future<List<Map<String, dynamic>>> teachers() async =>
+      ((await _send('GET', 'teachers'))['teachers'] as List).cast<Map<String, dynamic>>();
+
+  /// A new teacher with a key valid for [amount] days, months or years ([unit]). The key is given only this once.
+  Future<(Map<String, dynamic>, String)> createTeacher(String name, int amount, String unit) async {
+    final data = await _send('POST', 'teachers', {'name': name, 'amount': amount, 'unit': unit});
+    return (data['teacher'] as Map<String, dynamic>, data['key'] as String);
+  }
+
+  Future<void> updateTeacher(String id, Map<String, dynamic> changes) => _send('PATCH', 'teachers/$id', changes);
+
   Future<List<SessionInfo>> sessions() async {
     final data = await _send('GET', 'sessions');
     return [for (final s in data['sessions'] as List) SessionInfo.fromJson(s as Map<String, dynamic>)];

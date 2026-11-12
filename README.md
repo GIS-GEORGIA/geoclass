@@ -209,6 +209,7 @@ The same Worker also serves the web build, so the app and `/api` share one origi
 |---|---|
 | A **session** is the only grouping | One teacher, one list. A new class gets a new session and old ones stay. |
 | **Teacher key** instead of a password | Free Workers allow 10 ms CPU per request, too little for slow password hashing. A long random key is safe with plain SHA-256. |
+| **Owner and teachers** | The owner's key (the `TEACHER_KEY_HASH` secret) can do everything. In Settings → Teachers the owner adds a teacher with a validity in days, months or years (at most 5 years); the app shows the new key once, with a message to send in Georgian and English, and the server keeps only its hash. A teacher sees, backs up and restores only their own sessions, and can't restore into someone else's. The owner sees every session, with the teacher's name, and can revoke a key, give it back or change its validity. |
 | **Only the QR token's hash** is stored | A leaked database doesn't reveal working links. The token itself stays on the teacher's device. Showing the QR on another device means creating a new one, which cancels the old one. |
 | **Polling every 3 seconds** instead of WebSockets | Works the same on all platforms. An unchanged session costs one row read. Polling slows after 10 idle minutes and stops in a hidden tab. |
 | **All writes go through the Worker** | Students can't read each other's answers. Answers are validated on the server, and unknown fields are dropped. |
@@ -265,7 +266,7 @@ flutter build web --release --no-web-resources-cdn --no-wasm-dry-run --base-href
 npx wrangler deploy
 ```
 
-Run the `flutter build` line from the repository root. The migrations in `worker/migrations` (0001 to 0009 add one game each, 0010 the sign-in limit); before applying a new one to the live database, keep a copy with `npx wrangler d1 export geoclass --remote --output <file>.sql`. Native apps use `https://geoclass.qgis.ge` unless built with `--dart-define=API_BASE=<url>`.
+Run the `flutter build` line from the repository root. The migrations in `worker/migrations` (0001 to 0009 add one game each, 0010 the sign-in limit, 0011 teacher accounts); before applying a new one to the live database, keep a copy with `npx wrangler d1 export geoclass --remote --output <file>.sql`. Native apps use `https://geoclass.qgis.ge` unless built with `--dart-define=API_BASE=<url>`.
 
 ## Rebuilding the place data
 

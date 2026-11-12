@@ -21,3 +21,17 @@ export async function deleteOldAuthFailures(env: Env, now = nowSec()): Promise<n
   const result = await env.DB.prepare('DELETE FROM auth_failures WHERE window_start < ?').bind(now - AUTH_KEEP_SEC).run();
   return result.meta.changes ?? 0;
 }
+
+/**
+ * Run every night: deletes teacher accounts (their names) that ended, by expiry or revocation, more than
+ * KEEP_SEC ago and no longer own any session.
+ */
+export async function deleteOldTeachers(env: Env, now = nowSec()): Promise<number> {
+  const result = await env.DB.prepare(
+    `DELETE FROM teachers WHERE COALESCE(revoked_at, expires_at) < ?
+     AND NOT EXISTS (SELECT 1 FROM sessions WHERE sessions.teacher_id = teachers.id)`,
+  )
+    .bind(now - KEEP_SEC)
+    .run();
+  return result.meta.changes ?? 0;
+}

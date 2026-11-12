@@ -8,6 +8,7 @@ class SessionInfo {
   final int? responses;
   final Map<String, dynamic> settings;
   final int clockOffset; // server minus device, in seconds
+  final String? teacherName; // set in the owner's list for a session another teacher made
 
   const SessionInfo({
     required this.id,
@@ -20,6 +21,7 @@ class SessionInfo {
     this.responses,
     this.settings = const {},
     this.clockOffset = 0,
+    this.teacherName,
   });
 
   int get serverNow => deviceSeconds() + clockOffset;
@@ -35,6 +37,7 @@ class SessionInfo {
         responses: j['responses'] as int?,
         settings: j['settings'] as Map<String, dynamic>? ?? const {},
         clockOffset: (j['now'] as int? ?? deviceSeconds()) - deviceSeconds(),
+        teacherName: j['teacherName'] as String?,
       );
 }
 

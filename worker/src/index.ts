@@ -18,7 +18,7 @@ import {
   type EvidenceTask,
   type Task,
 } from './validate';
-import { KEEP_SEC, deleteOld, deleteOldAuthFailures } from './retention';
+import { KEEP_SEC, deleteOld, deleteOldAuthFailures, deleteOldTeachers } from './retention';
 
 const MAX_RESPONSES_PER_SESSION = 2000;
 const MAX_BODY_BYTES = 8 * 1024;
@@ -79,7 +79,11 @@ async function readBody<T>(request: Request, maxBytes = MAX_BODY_BYTES): Promise
  * happens to be right can't be told apart from a wrong one. Failures are counted in D1 because the rate limit
  * binding can't be read without counting a request, and valid teacher calls (polling) must not use it up.
  */
-async function requireTeacher(env: Env, request: Request): Promise<void> {
+/** Who made a teacher call: the owner (everything), or a teacher with their own key (their own sessions only). */
+type Actor = { admin: true; id: null; name: null; expiresAt: null } | { admin: false; id: string; name: string; expiresAt: number };
+const OWNER: Actor = { admin: true, id: null, name: null, expiresAt: null };
+
+async function requireTeacher(env: Env, request: Request): Promise<Actor> {
   // Keyed with the key's hash, a secret, so the stored value can't be turned back into an address by trying them all.
   const ipHash = await sha256(`auth:${env.TEACHER_KEY_HASH ?? ''}:${request.headers.get('CF-Connecting-IP') ?? 'unknown'}`);
   const now = nowSec();
@@ -91,7 +95,17 @@ async function requireTeacher(env: Env, request: Request): Promise<void> {
 
   const header = request.headers.get('Authorization') ?? '';
   const key = header.startsWith('Bearer ') ? header.slice(7) : '';
-  if (env.TEACHER_KEY_HASH && key && (await sha256(key)) === env.TEACHER_KEY_HASH) return;
+  let error = 'unauthorized';
+  if (key) {
+    const hash = await sha256(key);
+    if (env.TEACHER_KEY_HASH && hash === env.TEACHER_KEY_HASH) return OWNER;
+    const t = await env.DB.prepare('SELECT id, name, expires_at, revoked_at FROM teachers WHERE key_hash = ?')
+      .bind(hash)
+      .first<{ id: string; name: string; expires_at: number; revoked_at: number | null }>();
+    if (t && t.revoked_at === null && t.expires_at > now) return { admin: false, id: t.id, name: t.name, expiresAt: t.expires_at };
+    // The key was real once: say so, so the app can tell the teacher why.
+    if (t) error = 'key_expired';
+  }
 
   await env.DB.prepare(
     `INSERT INTO auth_failures (ip_hash, window_start, count) VALUES (?, ?, 1)
@@ -101,7 +115,11 @@ async function requireTeacher(env: Env, request: Request): Promise<void> {
   )
     .bind(ipHash, now, windowFrom, windowFrom)
     .run();
-  throw new HttpError(401, 'unauthorized');
+  throw new HttpError(401, error);
+}
+
+function requireOwner(actor: Actor): void {
+  if (!actor.admin) throw new HttpError(403, 'forbidden');
 }
 
 type SessionRow = {
@@ -113,9 +131,11 @@ type SessionRow = {
   archived: number;
   settings: string;
   created_at: number;
+  teacher_id: string | null;
+  teacher_name?: string | null;
 };
 
-const SESSION_COLUMNS = 'id, name, game, status, rev, archived, settings, created_at';
+const SESSION_COLUMNS = 'id, name, game, status, rev, archived, settings, created_at, teacher_id';
 const GAMES = ['travel', 'coordinates', 'aerial', 'mapping', 'cards', 'evidence', 'plates', 'puzzle', 'layout'];
 // Games played against the teacher's clock.
 const TIMED_GAMES = ['mapping', 'cards', 'puzzle'];
@@ -133,6 +153,8 @@ function sessionJson(s: SessionRow, count?: number) {
     settings: JSON.parse(s.settings),
     createdAt: s.created_at,
     now: nowSec(), // so a device with a wrong clock still shows the right time left
+    teacherId: s.teacher_id ?? null,
+    ...(s.teacher_name ? { teacherName: s.teacher_name } : {}),
     ...(count === undefined ? {} : { responses: count }),
   };
 }
@@ -175,8 +197,11 @@ function cleanName(value: unknown): string {
   return name;
 }
 
-async function sessionOr404(env: Env, id: string): Promise<SessionRow> {
-  const s = await env.DB.prepare(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE id = ?`).bind(id).first<SessionRow>();
+/** A session the actor may touch: any for the owner, only their own for a teacher. Someone else's is a 404. */
+async function sessionOr404(env: Env, id: string, actor: Actor): Promise<SessionRow> {
+  const s = await env.DB.prepare(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE id = ? AND (? = 1 OR teacher_id = ?)`)
+    .bind(id, actor.admin ? 1 : 0, actor.id ?? '')
+    .first<SessionRow>();
   if (!s) throw new HttpError(404, 'not_found');
   return s;
 }
@@ -457,16 +482,20 @@ async function forget(env: Env, request: Request): Promise<Response> {
 
 // --- Teacher endpoints ---
 
-async function listSessions(env: Env): Promise<Response> {
+async function listSessions(env: Env, actor: Actor): Promise<Response> {
   const { results } = await env.DB.prepare(
-    `SELECT ${SESSION_COLUMNS.split(', ').map((c) => `s.${c}`).join(', ')}, COUNT(r.id) AS n
-     FROM sessions s LEFT JOIN responses r ON r.session_id = s.id
+    // Only the owner's list names who made a session; a teacher's own list doesn't need it.
+    `SELECT ${SESSION_COLUMNS.split(', ').map((c) => `s.${c}`).join(', ')}, ${actor.admin ? 't.name' : 'NULL'} AS teacher_name, COUNT(r.id) AS n
+     FROM sessions s LEFT JOIN responses r ON r.session_id = s.id LEFT JOIN teachers t ON t.id = s.teacher_id
+     WHERE ? = 1 OR s.teacher_id = ?
      GROUP BY s.id ORDER BY s.created_at DESC`,
-  ).all<SessionRow & { n: number }>();
+  )
+    .bind(actor.admin ? 1 : 0, actor.id ?? '')
+    .all<SessionRow & { n: number }>();
   return json({ sessions: results.map((s) => sessionJson(s, s.n)) });
 }
 
-async function createSession(env: Env, request: Request): Promise<Response> {
+async function createSession(env: Env, request: Request, actor: Actor): Promise<Response> {
   const body = await readBody<{
     name?: unknown;
     game?: unknown;
@@ -495,14 +524,14 @@ async function createSession(env: Env, request: Request): Promise<Response> {
               : {};
   const id = crypto.randomUUID();
   const token = randomToken();
-  await env.DB.prepare('INSERT INTO sessions (id, name, game, token_hash, settings, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .bind(id, name, body.game, await sha256(token), JSON.stringify(settings), nowSec())
+  await env.DB.prepare('INSERT INTO sessions (id, name, game, token_hash, settings, created_at, teacher_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(id, name, body.game, await sha256(token), JSON.stringify(settings), nowSec(), actor.id)
     .run();
-  return json({ session: sessionJson(await sessionOr404(env, id), 0), token }, 201);
+  return json({ session: sessionJson(await sessionOr404(env, id, actor), 0), token }, 201);
 }
 
-async function updateSession(env: Env, request: Request, id: string): Promise<Response> {
-  await sessionOr404(env, id);
+async function updateSession(env: Env, request: Request, id: string, actor: Actor): Promise<Response> {
+  await sessionOr404(env, id, actor);
   const body = await readBody<{ name?: unknown; status?: unknown; archived?: unknown }>(request);
   const statements: D1PreparedStatement[] = [];
   if (body.name !== undefined) {
@@ -520,12 +549,12 @@ async function updateSession(env: Env, request: Request, id: string): Promise<Re
   }
   if (statements.length === 0) throw new HttpError(400, 'nothing_to_update');
   await env.DB.batch([...statements, bumpRev(env, id)]);
-  return json({ session: sessionJson(await sessionOr404(env, id)) });
+  return json({ session: sessionJson(await sessionOr404(env, id, actor)) });
 }
 
 /** Starts the clock of a timed game for everyone, changes the time left, or with 0 seconds stops it. */
-async function setTimer(env: Env, request: Request, id: string): Promise<Response> {
-  const s = await sessionOr404(env, id);
+async function setTimer(env: Env, request: Request, id: string, actor: Actor): Promise<Response> {
+  const s = await sessionOr404(env, id, actor);
   if (!TIMED_GAMES.includes(s.game)) throw new HttpError(400, 'bad_game');
   const { seconds, center, zoom } = await readBody<{ seconds?: unknown; center?: unknown; zoom?: unknown }>(request);
   if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 0 || seconds > MAX_TIMER_SEC) {
@@ -549,12 +578,12 @@ async function setTimer(env: Env, request: Request, id: string): Promise<Respons
     env.DB.prepare('UPDATE sessions SET settings = ? WHERE id = ?').bind(JSON.stringify(settings), id),
     bumpRev(env, id),
   ]);
-  return json({ session: sessionJson(await sessionOr404(env, id)) });
+  return json({ session: sessionJson(await sessionOr404(env, id, actor)) });
 }
 
 /** The plates game: the teacher moves everyone to a plate (the deck's length is the end) and shows or hides its answer. */
-async function setPlate(env: Env, request: Request, id: string): Promise<Response> {
-  const s = await sessionOr404(env, id);
+async function setPlate(env: Env, request: Request, id: string, actor: Actor): Promise<Response> {
+  const s = await sessionOr404(env, id, actor);
   if (s.game !== 'plates') throw new HttpError(400, 'bad_game');
   const { at, revealed } = await readBody<{ at?: unknown; revealed?: unknown }>(request);
   const settings = JSON.parse(s.settings) as PlatesSettings;
@@ -567,24 +596,24 @@ async function setPlate(env: Env, request: Request, id: string): Promise<Respons
     env.DB.prepare('UPDATE sessions SET settings = ? WHERE id = ?').bind(JSON.stringify(settings), id),
     bumpRev(env, id),
   ]);
-  return json({ session: sessionJson(await sessionOr404(env, id)) });
+  return json({ session: sessionJson(await sessionOr404(env, id, actor)) });
 }
 
-async function newToken(env: Env, id: string): Promise<Response> {
-  await sessionOr404(env, id);
+async function newToken(env: Env, id: string, actor: Actor): Promise<Response> {
+  await sessionOr404(env, id, actor);
   const token = randomToken();
   await env.DB.prepare('UPDATE sessions SET token_hash = ? WHERE id = ?').bind(await sha256(token), id).run();
   return json({ token });
 }
 
-async function deleteSession(env: Env, id: string): Promise<Response> {
-  await sessionOr404(env, id);
+async function deleteSession(env: Env, id: string, actor: Actor): Promise<Response> {
+  await sessionOr404(env, id, actor);
   await env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(id).run();
   return json({ ok: true });
 }
 
-async function listResponses(env: Env, url: URL, id: string): Promise<Response> {
-  const s = await sessionOr404(env, id);
+async function listResponses(env: Env, url: URL, id: string, actor: Actor): Promise<Response> {
+  const s = await sessionOr404(env, id, actor);
   // Polling: a single row read while nothing has changed.
   const known = url.searchParams.get('rev');
   if (known !== null && Number(known) === s.rev) {
@@ -596,8 +625,8 @@ async function listResponses(env: Env, url: URL, id: string): Promise<Response> 
   return json({ changed: true, session: sessionJson(s), responses: results.map(responseJson) });
 }
 
-async function resetResponses(env: Env, id: string): Promise<Response> {
-  await sessionOr404(env, id);
+async function resetResponses(env: Env, id: string, actor: Actor): Promise<Response> {
+  await sessionOr404(env, id, actor);
   await env.DB.batch([
     env.DB.prepare('DELETE FROM responses WHERE session_id = ?').bind(id),
     // Tells students' devices to forget their progress in the game.
@@ -608,13 +637,15 @@ async function resetResponses(env: Env, id: string): Promise<Response> {
 }
 
 /** Hides an answer, or in the evidence game counts it as right despite a small slip (and back). */
-async function updateResponse(env: Env, request: Request, id: string): Promise<Response> {
+async function updateResponse(env: Env, request: Request, id: string, actor: Actor): Promise<Response> {
   const { hidden, accepted } = await readBody<{ hidden?: unknown; accepted?: unknown }>(request);
   if (hidden !== undefined && typeof hidden !== 'boolean') throw new HttpError(400, 'bad_hidden');
   if (accepted !== undefined && typeof accepted !== 'boolean') throw new HttpError(400, 'bad_accepted');
   if (hidden === undefined && accepted === undefined) throw new HttpError(400, 'nothing_to_update');
-  const r = await env.DB.prepare('SELECT r.session_id, s.game FROM responses r JOIN sessions s ON s.id = r.session_id WHERE r.id = ?')
-    .bind(id)
+  const r = await env.DB.prepare(
+    'SELECT r.session_id, s.game FROM responses r JOIN sessions s ON s.id = r.session_id WHERE r.id = ? AND (? = 1 OR s.teacher_id = ?)',
+  )
+    .bind(id, actor.admin ? 1 : 0, actor.id ?? '')
     .first<{ session_id: string; game: string }>();
   if (!r) throw new HttpError(404, 'not_found');
   if (accepted !== undefined && r.game !== 'evidence') throw new HttpError(400, 'bad_game');
@@ -625,8 +656,12 @@ async function updateResponse(env: Env, request: Request, id: string): Promise<R
   return json({ ok: true });
 }
 
-async function deleteResponse(env: Env, id: string): Promise<Response> {
-  const r = await env.DB.prepare('SELECT session_id FROM responses WHERE id = ?').bind(id).first<{ session_id: string }>();
+async function deleteResponse(env: Env, id: string, actor: Actor): Promise<Response> {
+  const r = await env.DB.prepare(
+    'SELECT r.session_id FROM responses r JOIN sessions s ON s.id = r.session_id WHERE r.id = ? AND (? = 1 OR s.teacher_id = ?)',
+  )
+    .bind(id, actor.admin ? 1 : 0, actor.id ?? '')
+    .first<{ session_id: string }>();
   if (!r) throw new HttpError(404, 'not_found');
   await env.DB.batch([env.DB.prepare('DELETE FROM responses WHERE id = ?').bind(id), bumpRev(env, r.session_id)]);
   return json({ ok: true });
@@ -634,14 +669,18 @@ async function deleteResponse(env: Env, id: string): Promise<Response> {
 
 // --- Backup. QR tokens are left out: a restored session starts closed and needs a new QR. ---
 
-async function backup(env: Env, url: URL): Promise<Response> {
+async function backup(env: Env, url: URL, actor: Actor): Promise<Response> {
   const only = url.searchParams.get('session');
-  const sessions = only
-    ? await env.DB.prepare(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE id = ?`).bind(only).all<SessionRow>()
-    : await env.DB.prepare(`SELECT ${SESSION_COLUMNS} FROM sessions ORDER BY created_at`).all<SessionRow>();
-  const responses = only
-    ? await env.DB.prepare('SELECT * FROM responses WHERE session_id = ? ORDER BY created_at').bind(only).all<ResponseRow>()
-    : await env.DB.prepare('SELECT * FROM responses ORDER BY created_at').all<ResponseRow>();
+  // The owner backs up everything, a teacher only their own sessions.
+  const mine = 'WHERE (? = 1 OR teacher_id = ?) AND (? IS NULL OR id = ?)';
+  const scope = [actor.admin ? 1 : 0, actor.id ?? '', only, only];
+  const sessions = await env.DB.prepare(`SELECT ${SESSION_COLUMNS} FROM sessions ${mine} ORDER BY created_at`)
+    .bind(...scope)
+    .all<SessionRow>();
+  if (only && sessions.results.length === 0) throw new HttpError(404, 'not_found');
+  const responses = await env.DB.prepare(`SELECT * FROM responses WHERE session_id IN (SELECT id FROM sessions ${mine}) ORDER BY created_at`)
+    .bind(...scope)
+    .all<ResponseRow>();
   return json({
     format: 'geoclass-backup',
     version: 2,
@@ -651,7 +690,7 @@ async function backup(env: Env, url: URL): Promise<Response> {
   });
 }
 
-type BackupSession = { id?: unknown; name?: unknown; game?: unknown; archived?: unknown; settings?: { tasks?: unknown; pairs?: unknown; arrow?: unknown; rotation?: unknown }; createdAt?: unknown };
+type BackupSession = { id?: unknown; name?: unknown; game?: unknown; archived?: unknown; teacherId?: unknown; settings?: { tasks?: unknown; pairs?: unknown; arrow?: unknown; rotation?: unknown }; createdAt?: unknown };
 type BackupResponse = {
   id?: unknown;
   sessionId?: unknown;
@@ -685,7 +724,7 @@ function restoredSettings(game: string, tasks: (Task | EvidenceTask)[], raw: Bac
   }
 }
 
-async function restore(env: Env, request: Request): Promise<Response> {
+async function restore(env: Env, request: Request, actor: Actor): Promise<Response> {
   const data = await readBody<{ format?: unknown; version?: unknown; sessions?: BackupSession[]; responses?: BackupResponse[] }>(
     request,
     MAX_RESTORE_BYTES,
@@ -695,6 +734,22 @@ async function restore(env: Env, request: Request): Promise<Response> {
   }
 
   // Everything is validated first, so a bad file changes nothing.
+  // A teacher may restore only into sessions that are new or already theirs: an id of someone else's session
+  // would otherwise let the file's answers into it.
+  const ids = data.sessions.map((s) => s.id).filter((v): v is string => typeof v === 'string');
+  for (let i = 0; i < ids.length; i += D1_BATCH_SIZE) {
+    const part = ids.slice(i, i + D1_BATCH_SIZE);
+    const { results: taken } = await env.DB.prepare(
+      `SELECT id FROM sessions WHERE id IN (${part.map(() => '?').join(', ')}) AND NOT (? = 1 OR teacher_id IS ?)`,
+    )
+      .bind(...part, actor.admin ? 1 : 0, actor.id)
+      .all<{ id: string }>();
+    if (taken.length > 0) throw new HttpError(403, 'not_yours');
+  }
+  // The owner's file keeps who made each session, if that teacher still exists here.
+  const known = actor.admin
+    ? new Set((await env.DB.prepare('SELECT id FROM teachers').all<{ id: string }>()).results.map((r) => r.id))
+    : new Set<string>();
   const games = new Map<string, { game: string; tasks: (Task | EvidenceTask)[]; legend?: number[] }>();
   const statements: D1PreparedStatement[] = [];
   for (const s of data.sessions) {
@@ -706,7 +761,7 @@ async function restore(env: Env, request: Request): Promise<Response> {
     games.set(s.id, { game: s.game, tasks, legend: (settings as Partial<LayoutSettings>).legend });
     statements.push(
       env.DB.prepare(
-        "INSERT OR IGNORE INTO sessions (id, name, game, status, token_hash, archived, settings, created_at) VALUES (?, ?, ?, 'closed', ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO sessions (id, name, game, status, token_hash, archived, settings, created_at, teacher_id) VALUES (?, ?, ?, 'closed', ?, ?, ?, ?, ?)",
       ).bind(
         s.id,
         cleanName(s.name),
@@ -715,6 +770,7 @@ async function restore(env: Env, request: Request): Promise<Response> {
         s.archived === true ? 1 : 0,
         JSON.stringify(settings),
         s.createdAt,
+        actor.admin ? (typeof s.teacherId === 'string' && known.has(s.teacherId) ? s.teacherId : null) : actor.id,
       ),
     );
   }
@@ -796,6 +852,81 @@ async function restore(env: Env, request: Request): Promise<Response> {
   return json({ ok: true, sessions: games.size, responses: data.responses.length });
 }
 
+// --- Teacher accounts (owner only) ---
+
+const VALID_UNITS = ['day', 'month', 'year'];
+const MAX_VALID_DAYS = 5 * 366;
+
+/** The end of a validity the owner picks: a number of days, months or years from now, at most about five years. */
+function validUntil(amount: unknown, unit: unknown, now = nowSec()): number {
+  if (typeof amount !== 'number' || !Number.isInteger(amount) || amount < 1 || typeof unit !== 'string' || !VALID_UNITS.includes(unit)) {
+    throw new HttpError(400, 'bad_validity');
+  }
+  const end = new Date(now * 1000);
+  if (unit === 'day') end.setUTCDate(end.getUTCDate() + amount);
+  if (unit === 'month') end.setUTCMonth(end.getUTCMonth() + amount);
+  if (unit === 'year') end.setUTCFullYear(end.getUTCFullYear() + amount);
+  const at = Math.floor(end.getTime() / 1000);
+  if (at - now > MAX_VALID_DAYS * 86400) throw new HttpError(400, 'bad_validity');
+  return at;
+}
+
+type TeacherRow = { id: string; name: string; created_at: number; expires_at: number; revoked_at: number | null; n?: number };
+
+function teacherJson(t: TeacherRow) {
+  return {
+    id: t.id,
+    name: t.name,
+    createdAt: t.created_at,
+    expiresAt: t.expires_at,
+    revokedAt: t.revoked_at,
+    active: t.revoked_at === null && t.expires_at > nowSec(),
+    ...(t.n === undefined ? {} : { sessions: t.n }),
+  };
+}
+
+async function listTeachers(env: Env): Promise<Response> {
+  const { results } = await env.DB.prepare(
+    `SELECT t.id, t.name, t.created_at, t.expires_at, t.revoked_at, COUNT(s.id) AS n
+     FROM teachers t LEFT JOIN sessions s ON s.teacher_id = t.id GROUP BY t.id ORDER BY t.created_at DESC`,
+  ).all<TeacherRow>();
+  return json({ teachers: results.map(teacherJson) });
+}
+
+/** A new teacher and their key. The key is shown this once; only its hash is kept. */
+async function createTeacher(env: Env, request: Request): Promise<Response> {
+  const body = await readBody<{ name?: unknown; amount?: unknown; unit?: unknown }>(request);
+  const name = cleanName(body.name);
+  const expiresAt = validUntil(body.amount, body.unit);
+  const id = crypto.randomUUID();
+  const key = randomToken();
+  await env.DB.prepare('INSERT INTO teachers (id, name, key_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
+    .bind(id, name, await sha256(key), nowSec(), expiresAt)
+    .run();
+  const t = await env.DB.prepare('SELECT id, name, created_at, expires_at, revoked_at FROM teachers WHERE id = ?').bind(id).first<TeacherRow>();
+  return json({ teacher: teacherJson(t!), key }, 201);
+}
+
+/** Revoke a teacher's key or give it back, rename, or set a new validity counted from now. */
+async function updateTeacher(env: Env, request: Request, id: string): Promise<Response> {
+  const t = await env.DB.prepare('SELECT id FROM teachers WHERE id = ?').bind(id).first();
+  if (!t) throw new HttpError(404, 'not_found');
+  const body = await readBody<{ name?: unknown; revoked?: unknown; amount?: unknown; unit?: unknown }>(request);
+  const statements: D1PreparedStatement[] = [];
+  if (body.name !== undefined) statements.push(env.DB.prepare('UPDATE teachers SET name = ? WHERE id = ?').bind(cleanName(body.name), id));
+  if (body.revoked !== undefined) {
+    if (typeof body.revoked !== 'boolean') throw new HttpError(400, 'bad_revoked');
+    statements.push(env.DB.prepare('UPDATE teachers SET revoked_at = ? WHERE id = ?').bind(body.revoked ? nowSec() : null, id));
+  }
+  if (body.amount !== undefined || body.unit !== undefined) {
+    statements.push(env.DB.prepare('UPDATE teachers SET expires_at = ? WHERE id = ?').bind(validUntil(body.amount, body.unit), id));
+  }
+  if (statements.length === 0) throw new HttpError(400, 'nothing_to_update');
+  await env.DB.batch(statements);
+  const row = await env.DB.prepare('SELECT id, name, created_at, expires_at, revoked_at FROM teachers WHERE id = ?').bind(id).first<TeacherRow>();
+  return json({ teacher: teacherJson(row!) });
+}
+
 // --- Routing ---
 
 async function route(request: Request, env: Env, url: URL): Promise<Response> {
@@ -810,34 +941,42 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
   if (key === 'POST submit') return submit(env, request);
   if (key === 'POST forget') return forget(env, request);
 
-  await requireTeacher(env, request);
+  const actor = await requireTeacher(env, request);
 
-  if (key === 'GET me') return json({ ok: true });
-  if (key === 'GET backup') return backup(env, url);
-  if (key === 'POST restore') return restore(env, request);
+  if (key === 'GET me') {
+    return json({ ok: true, role: actor.admin ? 'owner' : 'teacher', name: actor.name, expiresAt: actor.expiresAt });
+  }
+  if (key === 'GET backup') return backup(env, url, actor);
+  if (key === 'POST restore') return restore(env, request, actor);
 
   const [resource, id, child] = parts;
+  if (resource === 'teachers' && !child) {
+    requireOwner(actor);
+    if (!id && method === 'GET') return listTeachers(env);
+    if (!id && method === 'POST') return createTeacher(env, request);
+    if (id && method === 'PATCH') return updateTeacher(env, request, id);
+  }
   if (resource === 'sessions') {
     if (!id) {
-      if (method === 'GET') return listSessions(env);
-      if (method === 'POST') return createSession(env, request);
+      if (method === 'GET') return listSessions(env, actor);
+      if (method === 'POST') return createSession(env, request, actor);
     } else if (!child) {
-      if (method === 'PATCH') return updateSession(env, request, id);
-      if (method === 'DELETE') return deleteSession(env, id);
+      if (method === 'PATCH') return updateSession(env, request, id, actor);
+      if (method === 'DELETE') return deleteSession(env, id, actor);
     } else if (child === 'token' && method === 'POST') {
-      return newToken(env, id);
+      return newToken(env, id, actor);
     } else if (child === 'timer' && method === 'POST') {
-      return setTimer(env, request, id);
+      return setTimer(env, request, id, actor);
     } else if (child === 'plate' && method === 'POST') {
-      return setPlate(env, request, id);
+      return setPlate(env, request, id, actor);
     } else if (child === 'responses') {
-      if (method === 'GET') return listResponses(env, url, id);
-      if (method === 'DELETE') return resetResponses(env, id);
+      if (method === 'GET') return listResponses(env, url, id, actor);
+      if (method === 'DELETE') return resetResponses(env, id, actor);
     }
   }
   if (resource === 'responses' && id && !child) {
-    if (method === 'PATCH') return updateResponse(env, request, id);
-    if (method === 'DELETE') return deleteResponse(env, id);
+    if (method === 'PATCH') return updateResponse(env, request, id, actor);
+    if (method === 'DELETE') return deleteResponse(env, id, actor);
   }
   throw new HttpError(404, 'not_found');
 }
@@ -856,6 +995,7 @@ export default {
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
     const n = await deleteOld(env);
     await deleteOldAuthFailures(env);
+    await deleteOldTeachers(env);
     if (n > 0) console.log(`deleted ${n} sessions older than ${KEEP_SEC / 86400} days`);
   },
 } satisfies ExportedHandler<Env>;

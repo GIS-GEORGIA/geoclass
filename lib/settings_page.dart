@@ -10,6 +10,7 @@ import 'citation.dart';
 import 'files.dart';
 import 'l10n.dart';
 import 'settings.dart';
+import 'teachers_page.dart';
 
 class SettingsPage extends StatefulWidget {
   final Settings settings;
@@ -26,13 +27,28 @@ class _SettingsPageState extends State<SettingsPage> {
   S get s => settings.s;
   Api get _api => Api(teacherKey: settings.teacherKey);
 
+  /// Who the key on this device is, once known: the owner gets the teachers list, a teacher sees until when.
+  Map<String, dynamic>? _me;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.teacherTools) {
+      _api.me().then((me) {
+        if (mounted) setState(() => _me = me);
+      }, onError: (_) {});
+    }
+  }
+
+  bool get _owner => _me?['role'] == 'owner';
+
   void _say(String text) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 
   String _problem(Object e) => s.f('failed', [e is ApiError ? s[e.key] : s['no_connection']]);
 
   Future<void> _backup() async {
     try {
-      await saveJsonBackup(await _api.backup(), 'all');
+      await saveJsonBackup(await _api.backup(), _owner ? 'all' : 'mine');
       if (mounted) _say(s['saved']);
     } on Exception catch (e) {
       if (mounted) _say(_problem(e));
@@ -72,7 +88,7 @@ class _SettingsPageState extends State<SettingsPage> {
       await _api.restore(file);
       if (mounted) _say(s['restore_done']);
     } on ApiError catch (e) {
-      if (mounted) _say(e.key == 'bad_backup' ? s['restore_bad'] : _problem(e));
+      if (mounted) _say(e.key == 'bad_backup' ? s['restore_bad'] : (e.key == 'not_yours' ? s['not_yours'] : _problem(e)));
     } on NoConnection catch (e) {
       if (mounted) _say(_problem(e));
     }
@@ -108,6 +124,26 @@ class _SettingsPageState extends State<SettingsPage> {
                     selected: {settings.theme},
                     onSelectionChanged: (v) => settings.setTheme(v.first),
                   ),
+                  if (widget.teacherTools && _me != null) ...[
+                    _title(s['account']),
+                    if (_owner)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.group),
+                        title: Text(s['teachers']),
+                        subtitle: Text(s['teachers_hint']),
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(builder: (_) => TeachersPage(settings: settings)),
+                        ),
+                      )
+                    else
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.person),
+                        title: Text(_me!['name'] as String? ?? ''),
+                        subtitle: Text(s.f('teacher_until', [dayOf(_me!['expiresAt'] as int)])),
+                      ),
+                  ],
                   if (widget.teacherTools) ...[
                     _title(s['data']),
                     Text(s['backup_note']),
@@ -115,7 +151,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.download),
-                      title: Text(s['backup_all']),
+                      title: Text(_me != null && !_owner ? s['backup_mine'] : s['backup_all']),
                       onTap: _backup,
                     ),
                     ListTile(
