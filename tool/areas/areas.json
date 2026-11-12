@@ -1,0 +1,23 @@
+[
+  {
+    "id": "kazbegi",
+    "version": 1,
+    "ka": "ყაზბეგი და გერგეტი",
+    "en": "Kazbegi and Gergeti",
+    "bbox": [44.48, 42.6, 44.7, 42.72]
+  },
+  {
+    "id": "kutaisi-rioni",
+    "version": 1,
+    "ka": "რიონი ქუთაისთან",
+    "en": "Rioni near Kutaisi",
+    "bbox": [42.55, 42.15, 42.85, 42.4]
+  },
+  {
+    "id": "mestia",
+    "version": 1,
+    "ka": "მესტია",
+    "en": "Mestia",
+    "bbox": [42.6, 43.0, 42.82, 43.12]
+  }
+]
