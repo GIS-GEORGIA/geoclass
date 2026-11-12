@@ -15,6 +15,7 @@ import {
   validatePlates,
   validateTasks,
   type PlatesSettings,
+  type CardsSettings,
   type EvidenceTask,
   type Task,
 } from './validate';
@@ -142,7 +143,7 @@ const TIMED_GAMES = ['mapping', 'cards', 'puzzle'];
 // Games made of tasks that the server scores.
 const TASK_GAMES = ['coordinates', 'aerial'];
 // Games whose answers stay on the server unless the teacher chose the offline mode.
-const PROTECTED_GAMES = ['aerial', 'evidence'];
+const PROTECTED_GAMES = ['aerial', 'evidence', 'cards'];
 const ANSWER_MODES = ['online', 'offline'];
 
 function sessionJson(s: SessionRow, count?: number) {
@@ -231,7 +232,7 @@ async function join(env: Env, request: Request): Promise<Response> {
     name: s.name,
     game: s.game,
     status: s.status,
-    settings: studentSettings(s.game, settings),
+    settings: studentSettings(s.game, settings, s.id),
     now: nowSec(),
   });
 }
@@ -241,9 +242,16 @@ async function join(env: Env, request: Request): Promise<Response> {
  * Online mode keeps the right answers on the server; the result comes back from submit.
  * Sessions from before the choice existed have no mode and stay as they were: offline.
  */
-export function studentSettings(game: string, settings: Record<string, unknown>): Record<string, unknown> {
+export function studentSettings(game: string, settings: Record<string, unknown>, sessionId: string): Record<string, unknown> {
   if (game === 'plates') return studentPlates(settings as PlatesSettings);
   if (!PROTECTED_GAMES.includes(game) || settings.answers !== 'online') return settings;
+  if (game === 'cards') {
+    // Cards by their place in the session's hidden order, each with its turn. The pictures come through
+    // cardImage under the same ids, because the file names give the pairs away.
+    const { pairs, order, ...rest } = settings as CardsSettings & { order: number[] };
+    const canonical = pairs.flatMap((p) => [p.ra, p.rb]);
+    return { ...rest, session: sessionId, cards: order.map((c, id) => ({ id, r: canonical[c] })) };
+  }
   const tasks = settings.tasks as Record<string, unknown>[];
   return {
     ...settings,
@@ -258,6 +266,48 @@ export function studentSettings(game: string, settings: Record<string, unknown>)
 /** Students get only the plate on the screen now, not the ones still to come. Past the last one it's null. */
 function studentPlates(p: PlatesSettings) {
   return { plate: p.deck[p.at] ?? null, at: p.at, count: p.deck.length, revealed: p.revealed };
+}
+
+/** A random order of the deck's cards (pair * 2 + side), kept on the server. A card's id is its place in it. */
+export function shuffledCards(pairs: number): number[] {
+  const order = Array.from({ length: pairs * 2 }, (_, i) => i);
+  const random = new Uint32Array(order.length);
+  crypto.getRandomValues(random);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = random[i] % (i + 1);
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
+}
+
+/**
+ * The card (pair * 2 + side) a student's card id stands for. Online, the ids are places in the hidden order;
+ * offline the device knows the pairs and sends that number itself.
+ */
+function cardOf(settings: CardsSettings & { order?: number[] }, id: number): number | undefined {
+  const card = settings.answers === 'online' ? settings.order?.[id] : id;
+  return card !== undefined && card < settings.pairs.length * 2 ? card : undefined;
+}
+
+/** The picture of a card in an online cards session, under its id. */
+async function cardImage(env: Env, sessionId: string, cardId: string): Promise<Response> {
+  const s = await env.DB.prepare('SELECT game, settings FROM sessions WHERE id = ? AND archived = 0')
+    .bind(sessionId)
+    .first<{ game: string; settings: string }>();
+  const settings = s?.game === 'cards' ? (JSON.parse(s.settings) as CardsSettings & { order?: number[] }) : undefined;
+  const card = settings?.answers === 'online' && /^\d{1,3}$/.test(cardId) ? cardOf(settings, Number(cardId)) : undefined;
+  if (!settings || card === undefined) throw new HttpError(404, 'not_found');
+  const pair = settings.pairs[Math.floor(card / 2)];
+  const file = card % 2 === 0 ? pair.a : pair.b;
+  const picture = await env.ASSETS.fetch(new Request(`https://assets.local/cards/${file}`));
+  if (!picture.ok) throw new HttpError(404, 'not_found');
+  return new Response(picture.body, {
+    headers: {
+      'Content-Type': picture.headers.get('Content-Type') ?? 'application/octet-stream',
+      'Cache-Control': 'private, max-age=86400',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
 }
 
 async function submit(env: Env, request: Request): Promise<Response> {
@@ -281,10 +331,14 @@ async function submit(env: Env, request: Request): Promise<Response> {
   if (typeof participantId !== 'string' || !ID_RE.test(participantId)) throw new HttpError(400, 'bad_id');
 
   // Checked before the status, so a retry of a stored answer succeeds even after the session closes.
-  const existing = await env.DB.prepare('SELECT session_id, round, score, distance_m FROM responses WHERE id = ?')
+  const existing = await env.DB.prepare('SELECT session_id, round, score, distance_m, answer FROM responses WHERE id = ?')
     .bind(submissionId)
-    .first<StoredAnswer & { session_id: string }>();
-  if (existing) return json({ ok: true, duplicate: true, ...(existing.session_id === s.id ? answerResult(s, existing) : {}) });
+    .first<StoredAnswer & { session_id: string; answer: string }>();
+  if (existing) {
+    const mine = existing.session_id === s.id;
+    const match = mine && s.game === 'cards' ? { match: JSON.parse(existing.answer).ok === true } : {};
+    return json({ ok: true, duplicate: true, ...(mine ? answerResult(s, existing) : {}), ...match });
+  }
 
   if (s.status !== 'open') throw new HttpError(409, `session_${s.status}`);
 
@@ -389,14 +443,17 @@ async function submitCardTry(
   answer: Record<string, unknown>,
 ): Promise<Response> {
   requireRunning(s);
-  const settings = JSON.parse(s.settings) as { pairs?: unknown[]; pieces?: number };
-  const total = s.game === 'puzzle' ? (settings.pieces ?? 0) : (settings.pairs?.length ?? 0);
-  if (s.game === 'puzzle') {
-    if ((answer.piece as number) >= total) throw new HttpError(400, 'bad_round');
-  } else if (answer.ok === true) {
-    if ((answer.pair as number) >= total) throw new HttpError(400, 'bad_round');
-  } else if ((answer.x as number) >= total || (answer.y as number) >= total) {
-    throw new HttpError(400, 'bad_round');
+  if (s.game === 'cards') {
+    // The server decides whether the two cards match: the device only says which two were turned.
+    const settings = JSON.parse(s.settings) as CardsSettings & { order?: number[] };
+    const first = cardOf(settings, answer.a as number);
+    const second = cardOf(settings, answer.b as number);
+    if (first === undefined || second === undefined) throw new HttpError(400, 'bad_round');
+    const [x, y] = [Math.floor(first / 2), Math.floor(second / 2)];
+    answer = x === y ? { ok: true, pair: x, a: answer.a, b: answer.b } : { ok: false, x, y, a: answer.a, b: answer.b };
+  } else {
+    const { pieces } = JSON.parse(s.settings) as { pieces?: number };
+    if ((answer.piece as number) >= (pieces ?? 0)) throw new HttpError(400, 'bad_round');
   }
 
   const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM responses WHERE session_id = ?').bind(s.id).first<{ n: number }>();
@@ -424,7 +481,8 @@ async function submitCardTry(
     bumpRev(env, s.id),
   ]);
   // A pair found twice (a second device, a late retry) is kept once.
-  return json({ ok: true, duplicate: stored[0].meta.changes === 0 }, stored[0].meta.changes === 0 ? 200 : 201);
+  const match = s.game === 'cards' ? { match: answer.ok === true } : {};
+  return json({ ok: true, duplicate: stored[0].meta.changes === 0, ...match }, stored[0].meta.changes === 0 ? 200 : 201);
 }
 
 /** A student hands in the map sheet. Handing it in again replaces it: one sheet per student, scored here. */
@@ -584,6 +642,9 @@ async function createSession(env: Env, request: Request, actor: Actor): Promise<
     // New sessions keep the answers on the server unless the teacher asks for offline play.
     if (body.answers !== undefined && !ANSWER_MODES.includes(body.answers as string)) throw new HttpError(400, 'bad_answers');
     (settings as Record<string, unknown>).answers = body.answers ?? 'online';
+    if (body.game === 'cards' && (settings as Record<string, unknown>).answers === 'online') {
+      (settings as Record<string, unknown>).order = shuffledCards((settings as CardsSettings).pairs.length);
+    }
   }
   const id = crypto.randomUUID();
   const token = randomToken();
@@ -785,6 +846,15 @@ function restoredSettings(game: string, tasks: (Task | EvidenceTask)[], raw: Bac
   if (game !== 'cards' && game !== 'plates' && game !== 'puzzle' && game !== 'layout') return {};
   try {
     if (game === 'layout') return validateLayout(raw);
+    if (game === 'cards') {
+      // Online decks keep their hidden order; a backup from before the mode existed plays offline, as it did.
+      const deck = validateCards(raw);
+      if (raw?.answers !== 'online' && raw?.answers !== 'offline') return deck;
+      if (raw.answers === 'offline') return { ...deck, answers: 'offline' };
+      const order = (raw as { order?: unknown }).order;
+      const valid = Array.isArray(order) && order.length === deck.pairs.length * 2 && [...order].sort((a, b) => a - b).every((v, i) => v === i);
+      return { ...deck, answers: 'online', order: valid ? order : shuffledCards(deck.pairs.length) };
+    }
     return game === 'plates' ? validatePlates(raw) : game === 'puzzle' ? validatePuzzle(raw) : validateCards(raw);
   } catch {
     throw new HttpError(400, 'bad_backup');
@@ -1007,6 +1077,7 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
   if (key === 'POST join') return join(env, request);
   if (key === 'POST submit') return submit(env, request);
   if (key === 'POST forget') return forget(env, request);
+  if (key === 'GET card-image' && parts.length === 3) return cardImage(env, parts[1], parts[2]);
 
   const actor = await requireTeacher(env, request);
 

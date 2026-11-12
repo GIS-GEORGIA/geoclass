@@ -184,7 +184,7 @@ class _CardsSessionPageState extends SessionPageState<CardsSessionPage> {
                         aspectRatio: 1,
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(6),
-                          child: TurnedImage(file: f, angle: 0, fill: false),
+                          child: TurnedImage(url: cardUrl(f), angle: 0, fill: false),
                         ),
                       ),
                     ),

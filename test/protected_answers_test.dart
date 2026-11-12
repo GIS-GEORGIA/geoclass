@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geoclass/api.dart';
+import 'package:geoclass/cards.dart';
+import 'package:geoclass/cards_play.dart';
 import 'package:geoclass/evidence.dart';
 import 'package:geoclass/evidence_play.dart';
 import 'package:geoclass/l10n.dart';
@@ -111,6 +113,120 @@ void main() {
       expect(find.text(s.f('ev_result_total', [100, 100])), findsOneWidget);
       expect(find.text(s['play_checked_later']), findsOneWidget);
       await tester.pump(const Duration(seconds: 1));
+    });
+  });
+
+  group('cards, online answers', () {
+    // The server's hidden order: card id -> pair * 2 + side. The device never sees it.
+    const order = [3, 0, 5, 1, 4, 2];
+    late List<Map<String, dynamic>> sent;
+    late bool offline;
+
+    Future<void> open(WidgetTester tester) async {
+      sent = [];
+      offline = false;
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final settings = {
+        'arrow': false,
+        'rotation': 'none',
+        'answers': 'online',
+        'session': 'sess-1',
+        'cards': [
+          for (var i = 0; i < 6; i++) {'id': i, 'r': 0},
+        ],
+        'endsAt': now + 120,
+      };
+      final client = MockClient((request) async {
+        if (request.url.path.endsWith('/submit')) {
+          if (offline) throw http.ClientException('offline');
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          sent.add(body);
+          final a = (body['answer'] as Map)['a'] as int, b = (body['answer'] as Map)['b'] as int;
+          return http.Response(
+            jsonEncode({'ok': true, 'match': order[a] ~/ 2 == order[b] ~/ 2}),
+            201,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode({'name': 'x', 'game': 'cards', 'status': 'open', 'settings': settings, 'now': now}),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      tester.view.physicalSize = const Size(375, 812);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      final report = FlutterError.onError;
+      FlutterError.onError = (_) {}; // the pictures can't load in a test
+      addTearDown(() => FlutterError.onError = report);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CardsPlay(
+              s: s,
+              token: 'tok',
+              settings: settings,
+              now: now,
+              api: Api(client: client),
+              onStopped: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    List<CardTile> tiles(WidgetTester tester) => tester.widgetList<CardTile>(find.byType(CardTile)).toList();
+    int at(WidgetTester tester, int id) => tiles(tester).indexWhere((t) => t.card.id == id);
+    Future<void> tapId(WidgetTester tester, int id) async {
+      await tester.tap(find.byType(CardTile).at(at(tester, id)), warnIfMissed: false);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    Future<void> close(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 2));
+    }
+
+    testWidgets('pictures come by card id, never by file name', (tester) async {
+      await open(tester);
+      final urls = tiles(tester).map((t) => t.card.url).toSet();
+      expect(urls, {for (var i = 0; i < 6; i++) '$publicUrl/api/card-image/sess-1/$i'});
+      expect(tiles(tester).every((t) => t.card.pair == -1), isTrue);
+      await close(tester);
+    });
+
+    testWidgets('the server says whether two cards match', (tester) async {
+      await open(tester);
+      // Ids 1 and 3 are pair 0 on the server.
+      await tapId(tester, 1);
+      await tapId(tester, 3);
+      expect(sent.single['answer'], {'a': 1, 'b': 3});
+      expect(find.text(s.f('cards_found', [1, 3])), findsOneWidget);
+      expect(tiles(tester).where((t) => t.found), hasLength(2));
+      // Ids 0 and 2 are different pairs.
+      await tapId(tester, 0);
+      await tapId(tester, 2);
+      expect(tiles(tester).where((t) => t.wrong), hasLength(2));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text(s.f('cards_found', [1, 3])), findsOneWidget);
+      expect(find.text('1'), findsOneWidget); // one mistake
+      await close(tester);
+    });
+
+    testWidgets('without internet a try is not counted and the student is told', (tester) async {
+      await open(tester);
+      offline = true;
+      await tapId(tester, 1);
+      await tapId(tester, 3);
+      expect(find.text(s['cards_need_internet']), findsOneWidget);
+      expect(tiles(tester).where((t) => t.found || t.selected), isEmpty);
+      expect(find.text(s.f('cards_found', [0, 3])), findsOneWidget);
+      await close(tester);
     });
   });
 }

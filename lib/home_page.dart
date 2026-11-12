@@ -276,7 +276,7 @@ class _SessionListState extends State<_SessionList> {
     List<PlateSpec>? plates;
     PuzzleSpec? puzzle;
     LayoutSpec? layout;
-    bool? offline; // aerial and evidence: answers checked on the devices instead of the server
+    bool? offline; // aerial, evidence and cards: answers checked on the devices instead of the server
     if (game == 'layout') {
       layout = await Navigator.of(context).push<LayoutSpec>(MaterialPageRoute(
         builder: (_) => LayoutSetupPage(s: s, lang: widget.settings.lang),
@@ -299,10 +299,11 @@ class _SessionListState extends State<_SessionList> {
       if (picked == null) return;
       (evidence, offline) = picked;
     } else if (game == 'cards') {
-      deck = await Navigator.of(context).push<Deck>(MaterialPageRoute(
+      final picked = await Navigator.of(context).push<(Deck, bool)>(MaterialPageRoute(
         builder: (_) => CardsSetupPage(s: s, lang: widget.settings.lang),
       ));
-      if (deck == null) return;
+      if (picked == null) return;
+      (deck, offline) = picked;
     } else if (game == 'coordinates') {
       tasks = await Navigator.of(context).push<List<CoordTask>>(MaterialPageRoute(
         builder: (_) => CoordinatesSetupPage(s: s),

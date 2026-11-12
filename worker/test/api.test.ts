@@ -600,72 +600,156 @@ describe('cards game', () => {
   async function game(over: Record<string, unknown> = {}) {
     const res = await call('POST', 'sessions', { name: 'Cards', game: 'cards', cards: deck, ...over });
     expect(res.status).toBe(201);
-    return (await res.json()) as { session: { id: string }; token: string };
+    return (await res.json()) as { session: { id: string; settings: { order?: number[]; answers?: string } }; token: string };
   }
 
-  const play = (token: string, answer: unknown, participantId = 'student-0001') =>
-    student('submit', { token, submissionId: id('sub'), participantId, answer, lat: 0, lon: 0 });
+  const play = (token: string, answer: unknown, participantId = 'student-0001', submissionId = id('sub')) =>
+    student('submit', { token, submissionId, participantId, answer, lat: 0, lon: 0 });
 
   const start = (sessionId: string, seconds = 180) => call('POST', `sessions/${sessionId}/timer`, { seconds });
 
   async function rows(sessionId: string) {
     return (await (await call('GET', `sessions/${sessionId}/responses`)).json()) as {
-      responses: { round: number; participantId: string; answer: { ok: boolean; pair?: number } }[];
+      responses: { round: number; participantId: string; answer: { ok: boolean; pair?: number; x?: number; y?: number } }[];
     };
   }
 
-  it('hands the deck to students once the clock runs', async () => {
-    const { session, token } = await game();
-    const joined = (await (await student('join', { token })).json()) as { settings: { pairs: unknown[]; arrow: boolean; endsAt?: number } };
-    expect(joined.settings.pairs).toHaveLength(3);
-    expect(joined.settings.arrow).toBe(true);
-    expect(joined.settings.endsAt).toBeUndefined();
-    expect((await play(token, { ok: true, pair: 0 })).status).toBe(409);
+  /** The two card ids of a pair, read from the hidden order as only the teacher's side can. */
+  const idsOf = (order: number[], pair: number) => [order.indexOf(pair * 2), order.indexOf(pair * 2 + 1)];
 
+  it('online is the default: students get opaque cards, no pairs, file names or labels', async () => {
+    const { session, token } = await game();
+    expect(session.settings.answers).toBe('online');
+    expect([...session.settings.order!].sort()).toEqual([0, 1, 2, 3, 4, 5]);
+    const res = await student('join', { token });
+    const text = await res.text();
+    const joined = JSON.parse(text) as { settings: Record<string, unknown> & { cards: { id: number; r: number }[] } };
+    expect(joined.settings).not.toHaveProperty('pairs');
+    expect(joined.settings).not.toHaveProperty('order');
+    expect(joined.settings.cards.map((c) => c.id)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(joined.settings.arrow).toBe(true);
+    for (const secret of ['a-1', 'b-2', '.jpg', 'ადგილი']) expect(text).not.toContain(secret);
+    // Each card keeps its own turn.
+    const turns = pairs.flatMap((p) => [p.ra, p.rb]);
+    expect(joined.settings.cards.map((c) => c.r)).toEqual(session.settings.order!.map((c) => turns[c]));
+  });
+
+  it('hands the cards to students once the clock runs', async () => {
+    const { session, token } = await game();
+    const joined = (await (await student('join', { token })).json()) as { settings: { endsAt?: number } };
+    expect(joined.settings.endsAt).toBeUndefined();
+    expect((await play(token, { a: 0, b: 1 })).status).toBe(409);
     expect((await start(session.id)).status).toBe(200);
     const running = (await (await student('join', { token })).json()) as { settings: { endsAt: number }; now: number };
     expect(running.settings.endsAt - running.now).toBeGreaterThan(170);
   });
 
-  it('keeps a found pair once and counts wrong tries', async () => {
+  it('the server decides whether two cards match', async () => {
     const { session, token } = await game();
     await start(session.id);
-    expect((await play(token, { ok: true, pair: 1 })).status).toBe(201);
-    const again = await play(token, { ok: true, pair: 1 });
+    const order = session.settings.order!;
+    const [a, b] = idsOf(order, 1);
+    const found = await play(token, { a, b });
+    expect(found.status).toBe(201);
+    expect(await found.json()).toMatchObject({ match: true });
+    const again = await play(token, { a: b, b: a });
     expect(again.status).toBe(200);
-    expect(await again.json()).toEqual({ ok: true, duplicate: true });
-    expect((await play(token, { ok: false, x: 0, y: 2 })).status).toBe(201);
-    expect((await play(token, { ok: false, x: 0, y: 2 })).status).toBe(201);
+    expect(await again.json()).toEqual({ ok: true, duplicate: true, match: true });
+    const [c] = idsOf(order, 0);
+    const [, d] = idsOf(order, 2);
+    expect(await (await play(token, { a: c, b: d })).json()).toMatchObject({ match: false });
+    expect(await (await play(token, { a: c, b: d })).json()).toMatchObject({ match: false });
     // Another student finds the same pair: that is a different answer.
-    expect((await play(token, { ok: true, pair: 1 }, 'student-0002')).status).toBe(201);
+    expect((await play(token, { a, b }, 'student-0002')).status).toBe(201);
 
     const { responses } = await rows(session.id);
-    expect(responses.filter((r) => r.answer.ok).map((r) => r.participantId)).toEqual(['student-0001', 'student-0002']);
-    expect(responses.filter((r) => !r.answer.ok).map((r) => r.round)).toEqual([100, 101]);
+    expect(responses.filter((r) => r.answer.ok).map((r) => [r.participantId, r.answer.pair])).toEqual([
+      ['student-0001', 1],
+      ['student-0002', 1],
+    ]);
+    expect(responses.filter((r) => !r.answer.ok).map((r) => [r.round, r.answer.x, r.answer.y])).toEqual([
+      [100, 0, 2],
+      [100 + 1, 0, 2],
+    ]);
   });
 
-  it('refuses answers that do not fit the deck', async () => {
+  it('a retry of the same try gets the same answer', async () => {
     const { session, token } = await game();
     await start(session.id);
-    expect((await play(token, { ok: true, pair: 3 })).status).toBe(400);
-    expect((await play(token, { ok: true, pair: 99 })).status).toBe(400);
-    expect((await play(token, { ok: true, pair: -1 })).status).toBe(400);
-    expect((await play(token, { ok: true })).status).toBe(400);
-    expect((await play(token, { ok: false, x: 0, y: 3 })).status).toBe(400);
-    expect((await play(token, { ok: 'yes', pair: 0 })).status).toBe(400);
+    const [a, b] = idsOf(session.settings.order!, 0);
+    const submissionId = id('sub');
+    await play(token, { a, b }, 'student-0001', submissionId);
+    expect(await (await play(token, { a, b }, 'student-0001', submissionId)).json()).toEqual({ ok: true, duplicate: true, match: true });
+  });
+
+  it('refuses forged submissions: a claimed match, bad ids, or one card twice', async () => {
+    const { session, token } = await game();
+    await start(session.id);
+    // The old format, where the device said it had found a pair, is no longer believed.
+    expect((await play(token, { ok: true, pair: 0 })).status).toBe(400);
+    expect((await play(token, { ok: true, pair: 0, a: 0, b: 0 })).status).toBe(400);
+    expect((await play(token, { a: 0, b: 6 })).status).toBe(400); // only 6 cards
+    expect((await play(token, { a: 0, b: 99 })).status).toBe(400);
+    expect((await play(token, { a: -1, b: 1 })).status).toBe(400);
+    expect((await play(token, { a: 0.5, b: 1 })).status).toBe(400);
+    expect((await play(token, { a: '0', b: '1' })).status).toBe(400);
+    expect((await play(token, { a: 2, b: 2 })).status).toBe(400);
     expect((await rows(session.id)).responses).toHaveLength(0);
+    // Every wrong pair of ids is stored as a mistake, never as a found pair.
+    const order = session.settings.order!;
+    const [a] = idsOf(order, 0);
+    const [b] = idsOf(order, 1);
+    await play(token, { ok: true, pair: 0, a, b });
+    expect((await rows(session.id)).responses.map((r) => r.answer.ok)).toEqual([false]);
+  });
+
+  it('offline mode sends the deck, and the server still checks every pair', async () => {
+    const { session, token } = await game({ answers: 'offline' });
+    expect(session.settings.order).toBeUndefined();
+    const joined = (await (await student('join', { token })).json()) as { settings: { pairs: unknown[] } };
+    expect(joined.settings.pairs).toHaveLength(3);
+    await start(session.id);
+    // Offline the ids are pair * 2 + side, which the device knows.
+    expect(await (await play(token, { a: 4, b: 5 })).json()).toMatchObject({ match: true });
+    expect(await (await play(token, { a: 0, b: 3 })).json()).toMatchObject({ match: false });
+    expect((await rows(session.id)).responses.map((r) => r.answer.ok).sort()).toEqual([false, true]);
+  });
+
+  it('a deck from before the choice keeps working offline', async () => {
+    const { session, token } = await game({ answers: 'offline' });
+    await env.DB.prepare("UPDATE sessions SET settings = json_remove(settings, '$.answers') WHERE id = ?").bind(session.id).run();
+    const joined = (await (await student('join', { token })).json()) as { settings: { pairs: unknown[] } };
+    expect(joined.settings.pairs).toHaveLength(3);
+    await start(session.id);
+    expect(await (await play(token, { a: 0, b: 1 })).json()).toMatchObject({ match: true });
+  });
+
+  it('serves a card picture under its id, and nothing else', async () => {
+    const { session } = await game();
+    const order = session.settings.order!;
+    const files = pairs.flatMap((p) => [p.a, p.b]);
+    for (let i = 0; i < order.length; i++) {
+      const res = await call('GET', `card-image/${session.id}/${i}`, undefined, {});
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe(`picture of /cards/${files[order[i]]}`);
+    }
+    expect((await call('GET', `card-image/${session.id}/6`, undefined, {})).status).toBe(404);
+    expect((await call('GET', `card-image/${session.id}/x`, undefined, {})).status).toBe(404);
+    expect((await call('GET', `card-image/nope/0`, undefined, {})).status).toBe(404);
+    const offline = await game({ answers: 'offline' });
+    expect((await call('GET', `card-image/${offline.session.id}/0`, undefined, {})).status).toBe(404);
   });
 
   it('stops at the end of the time, and a reset starts over', async () => {
     const { session, token } = await game();
     await start(session.id);
     await env.DB.prepare("UPDATE sessions SET settings = json_set(settings, '$.endsAt', unixepoch() - 60) WHERE id = ?").bind(session.id).run();
-    expect(await (await play(token, { ok: true, pair: 0 })).json()).toEqual({ error: 'time_up' });
+    expect(await (await play(token, { a: 0, b: 1 })).json()).toEqual({ error: 'time_up' });
     await call('DELETE', `sessions/${session.id}/responses`);
-    expect(await (await play(token, { ok: true, pair: 0 })).json()).toEqual({ error: 'not_started' });
+    expect(await (await play(token, { a: 0, b: 1 })).json()).toEqual({ error: 'not_started' });
     // The deck survives a reset.
-    const joined = (await (await student('join', { token })).json()) as { settings: { pairs: unknown[] } };
-    expect(joined.settings.pairs).toHaveLength(3);
+    const joined = (await (await student('join', { token })).json()) as { settings: { cards: unknown[] } };
+    expect(joined.settings.cards).toHaveLength(6);
   });
 
   it('rejects a bad deck', async () => {
@@ -688,17 +772,34 @@ describe('cards game', () => {
     expect((await call('POST', `sessions/${session.id}/timer`, { seconds: 4000 })).status).toBe(400);
   });
 
-  it('keeps the deck and every try through a backup', async () => {
+  it('keeps the deck, its hidden order and every try through a backup', async () => {
     const { session, token } = await game();
     await start(session.id);
-    await play(token, { ok: true, pair: 2 });
-    await play(token, { ok: false, x: 0, y: 1 });
-    const file = await (await call('GET', `backup?session=${session.id}`)).json();
+    const order = session.settings.order!;
+    const [a, b] = idsOf(order, 2);
+    await play(token, { a, b });
+    await play(token, { a: idsOf(order, 0)[0], b: idsOf(order, 1)[0] });
+    const file = (await (await call('GET', `backup?session=${session.id}`)).json()) as { sessions: { settings: Record<string, unknown> }[] };
     await call('DELETE', `sessions/${session.id}`);
     expect((await call('POST', 'restore', file)).status).toBe(200);
     expect((await rows(session.id)).responses.map((r) => r.round)).toEqual([2, 100]);
-    const restored = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { session: { settings: { pairs: unknown[] } } };
-    expect(restored.session.settings.pairs).toHaveLength(3);
+    const restored = async () =>
+      ((await (await call('GET', `sessions/${session.id}/responses`)).json()) as { session: { settings: { pairs: unknown[]; order: number[]; answers?: string } } })
+        .session.settings;
+    expect((await restored()).pairs).toHaveLength(3);
+    expect((await restored()).order).toEqual(order);
+
+    // A broken order gets a new one rather than a deck nobody can play.
+    file.sessions[0].settings.order = [0, 0, 1, 2, 3, 4];
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    expect([...(await restored()).order].sort()).toEqual([0, 1, 2, 3, 4, 5]);
+
+    // A backup from before the mode existed comes back offline, as it was played.
+    delete file.sessions[0].settings.answers;
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    expect((await restored()).answers).toBeUndefined();
   });
 });
 

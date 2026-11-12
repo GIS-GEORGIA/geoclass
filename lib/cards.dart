@@ -136,10 +136,31 @@ class Deck {
 
 /// One card on the table.
 class DeckCard {
-  final int pair, side; // side 0 is the pair's first picture
+  final int pair, side; // side 0 is the pair's first picture; both -1 when the pairs stayed on the server
   final String file;
   final int angle;
-  const DeckCard(this.pair, this.side, this.file, this.angle);
+
+  /// What the server is told when the card is turned: pair * 2 + side, or its id in an online deck.
+  final int id;
+  final String? imageUrl; // an online deck's pictures come under the card's id, not the file name
+  const DeckCard(this.pair, this.side, this.file, this.angle, {int? id, this.imageUrl}) : id = id ?? pair * 2 + side;
+
+  String get url => imageUrl ?? cardUrl(file);
+}
+
+/// The deck's cards in their own order. An online deck (answers checked on the server) comes as ids and turns,
+/// without the pairs or the file names that would give them away.
+List<DeckCard> deckCards(Map<String, dynamic> settings) {
+  final online = settings['cards'];
+  if (online is List) {
+    return [
+      for (final c in online.cast<Map<String, dynamic>>())
+        DeckCard(-1, -1, '', c['r'] as int? ?? 0, id: c['id'] as int, imageUrl: '$publicUrl/api/card-image/${settings['session']}/${c['id']}'),
+    ];
+  }
+  return [
+    for (final (i, p) in Deck.fromSettings(settings).pairs.indexed) ...[DeckCard(i, 0, p.a, p.ra), DeckCard(i, 1, p.b, p.rb)],
+  ];
 }
 
 /// Every card of the deck in a random order, which is each student's own.
@@ -267,14 +288,14 @@ class NorthArrow extends StatelessWidget {
 
 /// The picture turned clockwise, scaled so that its corners still fill the square.
 class TurnedImage extends StatelessWidget {
-  final String file;
+  final String url;
   final double angle; // degrees
   final BoxFit fit;
   final bool fill;
   final Widget Function(BuildContext)? onError;
   const TurnedImage({
     super.key,
-    required this.file,
+    required this.url,
     required this.angle,
     this.fit = BoxFit.cover,
     this.fill = true,
@@ -291,7 +312,7 @@ class TurnedImage extends StatelessWidget {
       child: Transform.scale(
         scale: scale,
         child: Image.network(
-          cardUrl(file),
+          url,
           fit: fit,
           width: double.infinity,
           height: double.infinity,
@@ -380,7 +401,7 @@ class _CardZoomState extends State<_CardZoom> {
               child: Center(
                 child: AspectRatio(
                   aspectRatio: 1,
-                  child: TurnedImage(file: card.file, angle: angle, fit: BoxFit.contain, fill: false),
+                  child: TurnedImage(url: card.url, angle: angle, fit: BoxFit.contain, fill: false),
                 ),
               ),
             ),
@@ -480,7 +501,7 @@ class CardTile extends StatelessWidget {
                     onLongPress: onZoom,
                     child: Opacity(
                       opacity: found ? 0.55 : 1,
-                      child: TurnedImage(file: card.file, angle: card.angle.toDouble()),
+                      child: TurnedImage(url: card.url, angle: card.angle.toDouble()),
                     ),
                   ),
                 ),

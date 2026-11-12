@@ -46,11 +46,12 @@ class _CardsPlayState extends State<CardsPlay> {
 
   // The student's own table: nobody can copy from a neighbour's screen.
   List<DeckCard> _cards = const [];
-  final _found = <int>{}; // pairs
+  final _found = <int>{}; // card ids
   var _mistakes = 0;
-  final _pending = <Map<String, dynamic>>[]; // tries the server hasn't got yet
+  final _pending = <Map<String, dynamic>>[]; // offline tries the server hasn't got yet
   final _selected = <int>[]; // positions on the table
   List<int> _wrong = const [];
+  bool _checking = false; // an online try is waiting for the server's answer
 
   S get s => widget.s;
   String get _storeKey => 'cards_${widget.token}';
@@ -58,7 +59,11 @@ class _CardsPlayState extends State<CardsPlay> {
   int get _resetAt => _settings['resetAt'] as int? ?? 0;
   int get _left => (_endsAt ?? 0) - (deviceSeconds() + _clockOffset);
   bool get _running => _endsAt != null && _left > 0;
-  bool get _done => _deck.pairs.isNotEmpty && _found.length == _deck.pairs.length;
+  int get _pairs => _cards.length ~/ 2;
+  bool get _done => _cards.isNotEmpty && _found.length == _cards.length;
+
+  /// The pairs stayed on the server (online answers): it says whether two cards match.
+  bool get _online => _settings['cards'] is List;
 
   @override
   void initState() {
@@ -78,9 +83,8 @@ class _CardsPlayState extends State<CardsPlay> {
     super.dispose();
   }
 
-  List<DeckCard> _canonical() => [
-    for (final (i, p) in _deck.pairs.indexed) ...[DeckCard(i, 0, p.a, p.ra), DeckCard(i, 1, p.b, p.rb)],
-  ];
+  List<DeckCard> _canonical() => deckCards(_settings);
+  List<DeckCard> _deal(Map<String, dynamic> settings) => deckCards(settings)..shuffle(Random());
 
   // Reopening the link keeps the table and what was found, until the teacher clears the session.
   Future<void> _load() async {
@@ -91,7 +95,9 @@ class _CardsPlayState extends State<CardsPlay> {
     if (saved != null) {
       final data = jsonDecode(saved) as Map<String, dynamic>;
       final order = (data['order'] as List?)?.cast<int>();
-      if (data['resetAt'] == _resetAt &&
+      // Version 2 keeps found cards by id; what an older version saved is dealt again.
+      if (data['v'] == 2 &&
+          data['resetAt'] == _resetAt &&
           order != null &&
           order.length == canonical.length &&
           order.every((i) => i >= 0 && i < canonical.length)) {
@@ -101,7 +107,7 @@ class _CardsPlayState extends State<CardsPlay> {
         _pending.addAll((data['pending'] as List).cast<Map<String, dynamic>>());
       }
     }
-    if (_cards.isEmpty) _cards = dealCards(_deck, Random());
+    if (_cards.isEmpty) _cards = _deal(_settings);
     if (!mounted) return;
     setState(() => _loaded = true);
     await _save();
@@ -111,10 +117,11 @@ class _CardsPlayState extends State<CardsPlay> {
 
   Future<void> _save() async {
     final canonical = _canonical();
-    final order = [for (final c in _cards) canonical.indexWhere((x) => x.pair == c.pair && x.side == c.side)];
+    final order = [for (final c in _cards) canonical.indexWhere((x) => x.id == c.id)];
     await (await SharedPreferences.getInstance()).setString(
       _storeKey,
       jsonEncode({
+        'v': 2,
         'resetAt': _resetAt,
         'order': order,
         'found': _found.toList(),
@@ -144,7 +151,7 @@ class _CardsPlayState extends State<CardsPlay> {
           _selected.clear();
           _wrong = const [];
           _mistakes = 0;
-          _cards = dealCards(Deck.fromSettings(settings), Random());
+          _cards = _deal(settings);
         }
         _settings = settings;
         _deck = Deck.fromSettings(settings);
@@ -177,7 +184,7 @@ class _CardsPlayState extends State<CardsPlay> {
           'submissionId': item['id'],
           'participantId': _participant,
           'answer': {
-            for (final k in const ['ok', 'pair', 'x', 'y'])
+            for (final k in const ['a', 'b'])
               if (item.containsKey(k)) k: item[k],
           },
           'lat': 0,
@@ -205,35 +212,88 @@ class _CardsPlayState extends State<CardsPlay> {
   }
 
   void _tap(int position) {
-    final taken = _selected.contains(position) || _found.contains(_cards[position].pair);
-    if (!_running || _wrong.isNotEmpty || taken) return;
+    final taken = _selected.contains(position) || _found.contains(_cards[position].id);
+    if (!_running || _wrong.isNotEmpty || _checking || taken) return;
     if (_selected.isEmpty) {
       setState(() => _selected.add(position));
       return;
     }
     final first = _cards[_selected.first], second = _cards[position];
+    if (_online) {
+      _check(_selected.first, position);
+      return;
+    }
+    // Offline the device knows the pairs and shows the result at once; the server checks the try again.
+    _pending.add({'id': randomId(), 'a': first.id, 'b': second.id});
     if (first.pair == second.pair) {
-      setState(() {
-        _selected.clear();
-        _found.add(first.pair);
-        _pending.add({'id': randomId(), 'ok': true, 'pair': first.pair});
-      });
+      _matched(first, second);
     } else {
-      setState(() {
-        _wrong = [_selected.first, position];
-        _mistakes++;
-        _pending.add({'id': randomId(), 'ok': false, 'x': first.pair, 'y': second.pair});
-      });
-      _wrongTimer = Timer(_wrongShownFor, () {
-        if (mounted) {
-          setState(() {
-            _wrong = const [];
-            _selected.clear();
-          });
-        }
-      });
+      _missed(_selected.first, position);
     }
     _save().then((_) => _send());
+  }
+
+  void _matched(DeckCard first, DeckCard second) => setState(() {
+    _selected.clear();
+    _found.addAll([first.id, second.id]);
+  });
+
+  void _missed(int x, int y) {
+    setState(() {
+      _wrong = [x, y];
+      _mistakes++;
+    });
+    _wrongTimer = Timer(_wrongShownFor, () {
+      if (mounted) {
+        setState(() {
+          _wrong = const [];
+          _selected.clear();
+        });
+      }
+    });
+  }
+
+  /// Online: both cards stay turned while the server says whether they match, which takes a moment.
+  Future<void> _check(int x, int y) async {
+    final first = _cards[x], second = _cards[y];
+    setState(() {
+      _selected.add(y);
+      _checking = true;
+    });
+    String? problem;
+    try {
+      final reply = await widget.api.submit({
+        'token': widget.token,
+        'submissionId': randomId(),
+        'participantId': _participant,
+        'answer': {'a': first.id, 'b': second.id},
+        'lat': 0,
+        'lon': 0,
+      });
+      if (!mounted) return;
+      _checking = false;
+      if (reply['match'] == true) {
+        _matched(first, second);
+      } else {
+        _missed(x, y);
+      }
+      await _save();
+      return;
+    } on NoConnection {
+      problem = 'cards_need_internet';
+    } on ApiError catch (e) {
+      if (e.key == 'session_paused' || e.key == 'session_closed') {
+        if (mounted) widget.onStopped(e.key.replaceFirst('session_', ''));
+        return;
+      }
+      problem = e.key;
+    }
+    if (!mounted) return;
+    setState(() {
+      _checking = false;
+      _selected.clear();
+    });
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(s[problem])));
   }
 
   @override
@@ -294,7 +354,7 @@ class _CardsPlayState extends State<CardsPlay> {
                         ),
                         const SizedBox(width: 8),
                       ],
-                      Text(s.f('cards_found', [_found.length, _deck.pairs.length]), style: theme.textTheme.titleMedium),
+                      Text(s.f('cards_found', [_found.length ~/ 2, _pairs]), style: theme.textTheme.titleMedium),
                       const SizedBox(width: 12),
                       Icon(Icons.close, size: 18, color: theme.colorScheme.error),
                       Text('$_mistakes', style: theme.textTheme.titleMedium),
@@ -313,7 +373,7 @@ class _CardsPlayState extends State<CardsPlay> {
     final theme = Theme.of(context);
     final message = _done
         ? s['cards_all_found']
-        : (!_running ? s.f('cards_final', [_found.length, _deck.pairs.length]) : null);
+        : (!_running ? s.f('cards_final', [_found.length ~/ 2, _pairs]) : null);
     return LayoutBuilder(
       builder: (context, box) {
         final columns = _cards.length <= 12 ? (box.maxWidth >= 700 ? 4 : 3) : (box.maxWidth >= 700 ? 6 : 4);
@@ -348,7 +408,7 @@ class _CardsPlayState extends State<CardsPlay> {
                         card: card,
                         arrow: _deck.showsArrow,
                         selected: _selected.contains(i) && !_wrong.contains(i),
-                        found: _found.contains(card.pair),
+                        found: _found.contains(card.id),
                         wrong: _wrong.contains(i),
                         onTap: () => _tap(i),
                         onZoom: () => showCardZoom(context, s, card, arrow: _deck.showsArrow),

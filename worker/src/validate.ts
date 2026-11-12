@@ -70,14 +70,14 @@ export function validateAnswer(game: string, raw: unknown): Record<string, unkno
     return { kind, category: oneOf(a.category, CATEGORIES), coords };
   }
   if (game === 'cards') {
-    // Either a found pair (its number) or a wrong try (the pairs of the two cards, for the teacher's statistics).
-    if (typeof a.ok !== 'boolean') throw new HttpError(400, 'bad_answer');
-    const index = (v: unknown) => {
-      if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v >= MAX_PAIRS) throw new HttpError(400, 'bad_answer');
+    // The two cards turned over, by their ids. Whether they match is decided on the server, never by the device.
+    const card = (v: unknown) => {
+      if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v >= 2 * MAX_PAIRS) throw new HttpError(400, 'bad_answer');
       return v;
     };
-    if (a.ok) return { ok: true, pair: index(a.pair) };
-    return { ok: false, x: index(a.x), y: index(a.y) };
+    const [first, second] = [card(a.a), card(a.b)];
+    if (first === second) throw new HttpError(400, 'bad_answer');
+    return { a: first, b: second };
   }
   if (game === 'puzzle') {
     // A placed piece, or a piece dropped in the wrong place (kept for the teacher's hardest pieces).
@@ -237,7 +237,7 @@ export function scoreLayout(legend: number[], answer: Record<string, unknown>): 
 }
 
 export type CardPair = { a: string; b: string; label: string; labelEn: string; ra: number; rb: number };
-export type CardsSettings = { pairs: CardPair[]; arrow: boolean; rotation: string };
+export type CardsSettings = { pairs: CardPair[]; arrow: boolean; rotation: string; answers?: string };
 
 /** The deck of the cards game. Angles are fixed here so every student gets the same difficulty. */
 export function validateCards(raw: unknown): CardsSettings {

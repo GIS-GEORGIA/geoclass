@@ -104,7 +104,7 @@ class Api {
     List<Map<String, dynamic>>? plates,
     Map<String, dynamic>? puzzle,
     Map<String, dynamic>? layout,
-    String? answers, // aerial and evidence: 'online' (checked on the server, the default) or 'offline'
+    String? answers, // aerial, evidence and cards: 'online' (checked on the server, the default) or 'offline'
   }) async {
     final data = await _send('POST', 'sessions', {
       'name': name,

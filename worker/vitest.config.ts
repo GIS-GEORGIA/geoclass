@@ -13,6 +13,10 @@ export default defineConfig(async () => ({
           // sha256 of "test-teacher-key"
           TEACHER_KEY_HASH: '08767e0e1db0c180a43436652d3cf29ebac8d2412b3f309f01d22dfe3fd04377',
         },
+        // Stands in for the web build: answers with the path it was asked for.
+        serviceBindings: {
+          ASSETS: (request: Request) => new Response(`picture of ${new URL(request.url).pathname}`, { headers: { 'Content-Type': 'image/webp' } }),
+        },
       },
     }),
   ],

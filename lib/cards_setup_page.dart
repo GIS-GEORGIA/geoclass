@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import 'answer_mode.dart';
 import 'api.dart';
 import 'cards.dart';
 import 'l10n.dart';
@@ -9,7 +10,8 @@ import 'l10n.dart';
 const _randomCount = 6;
 
 /// The teacher picks the pairs, how the cards are turned and whether a north arrow shows.
-/// Returns the deck, with the turns already chosen so every student gets the same.
+/// Returns the deck, with the turns already chosen so every student gets the same, and whether the pairs
+/// are checked on the students' devices (offline) instead of the server.
 class CardsSetupPage extends StatefulWidget {
   final S s;
   final String lang;
@@ -24,6 +26,7 @@ class _CardsSetupPageState extends State<CardsSetupPage> {
   Set<String> _chosen = {}; // by first file
   String _rotation = 'none';
   bool _arrow = true;
+  bool _offline = false;
 
   S get s => widget.s;
 
@@ -80,7 +83,7 @@ class _CardsSetupPageState extends State<CardsSetupPage> {
       arrow: _arrow,
       rotation: _rotation,
     );
-    Navigator.pop(context, deck);
+    Navigator.pop(context, (deck, _offline));
   }
 
   Widget _message(String text) => Center(
@@ -153,6 +156,7 @@ class _CardsSetupPageState extends State<CardsSetupPage> {
                       subtitle: Text(s['cards_arrow_note']),
                       onChanged: _rotation == 'none' ? null : (v) => setState(() => _arrow = v),
                     ),
+                    OfflineAnswersSwitch(s: s, value: _offline, onChanged: (v) => setState(() => _offline = v)),
                     const Divider(),
                     Row(
                       children: [

@@ -8,6 +8,8 @@
   // The Flutter web build is served by the same Worker, so the app and /api share one origin.
   "assets": {
     "directory": "../build/web",
+    // The Worker reads card pictures through this to serve them under ids that don't give away the pairs.
+    "binding": "ASSETS",
     "run_worker_first": ["/api/*"]
   },
   "d1_databases": [

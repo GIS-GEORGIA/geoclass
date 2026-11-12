@@ -242,7 +242,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text(s.f('cards_found', [1, 3])), findsOneWidget);
-      expect(sent.single['answer'], {'ok': true, 'pair': 1});
+      // Offline the device sends the two cards, pair * 2 + side, and the server checks them again.
+      expect({(sent.single['answer'] as Map)['a'], (sent.single['answer'] as Map)['b']}, {2, 3});
       expect(sent.single['participantId'], isNotEmpty);
       expect(tiles(tester).where((t) => t.found), hasLength(2));
       await close(tester);
@@ -263,7 +264,8 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       expect(tiles(tester).where((t) => t.wrong), isEmpty);
 
-      expect(sent.single['answer'], {'ok': false, 'x': 0, 'y': 2});
+      expect(sent.single['answer'], {'a': all[first].card.id, 'b': all[second].card.id});
+      expect([all[first].card.id ~/ 2, all[second].card.id ~/ 2], [0, 2]);
       expect(find.text('1'), findsOneWidget);
       await close(tester);
     });
@@ -276,7 +278,7 @@ void main() {
         await tapCard(tester, all.lastIndexWhere((t) => t.card.pair == pair));
       }
       expect(find.text(s['cards_all_found']), findsOneWidget);
-      expect(sent.where((x) => (x['answer'] as Map)['ok'] == true), hasLength(3));
+      expect(sent.map((x) => {(x['answer'] as Map)['a'] ~/ 2, (x['answer'] as Map)['b'] ~/ 2}), [{0}, {1}, {2}]);
       await close(tester);
     });
 
