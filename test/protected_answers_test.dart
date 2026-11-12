@@ -22,6 +22,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final replies = <String, Map<String, dynamic>>{};
     final queue = SubmissionQueue(
+      'token-q',
       (item) async => {'score': item['submissionId'] == 'a' ? 50 : 100},
       onReply: (item, reply) => replies[item['submissionId'] as String] = reply,
     );

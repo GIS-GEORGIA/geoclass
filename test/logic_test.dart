@@ -158,7 +158,7 @@ void main() {
     test('keeps answers while offline and sends them in order later', () async {
       final sent = <String>[];
       var online = false;
-      final queue = SubmissionQueue((item) async {
+      final queue = SubmissionQueue('token-q', (item) async {
         if (!online) throw NoConnection();
         sent.add(item['submissionId'] as String);
       });
@@ -176,15 +176,15 @@ void main() {
     });
 
     test('survives a restart', () async {
-      final first = SubmissionQueue((_) async => throw NoConnection());
+      final first = SubmissionQueue('token-q', (_) async => throw NoConnection());
       await first.add({'submissionId': 'a'});
       await first.flush();
-      final second = SubmissionQueue((_) async {});
+      final second = SubmissionQueue('token-q', (_) async {});
       expect(await second.pending(), 1);
     });
 
     test('drops an answer the server refuses, and reports why', () async {
-      final queue = SubmissionQueue((_) async => throw ApiError(409, 'session_closed'));
+      final queue = SubmissionQueue('token-q', (_) async => throw ApiError(409, 'session_closed'));
       await queue.add({'submissionId': 'a'});
       expect(await queue.flush(), 'session_closed');
       expect(await queue.pending(), 0);
@@ -193,7 +193,7 @@ void main() {
     test('keeps an answer on a server failure or rate limit', () async {
       for (final status in [429, 500, 503]) {
         SharedPreferences.setMockInitialValues({});
-        final queue = SubmissionQueue((_) async => throw ApiError(status, 'x'));
+        final queue = SubmissionQueue('token-q', (_) async => throw ApiError(status, 'x'));
         await queue.add({'submissionId': 'a'});
         await queue.flush();
         expect(await queue.pending(), 1);

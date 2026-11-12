@@ -52,7 +52,7 @@ class _Result {
 }
 
 class _CoordinatesPlayState extends State<CoordinatesPlay> {
-  late final _queue = SubmissionQueue(widget.api.submit, onReply: _onReply);
+  late final _queue = SubmissionQueue(widget.token, widget.api.submit, onReply: _onReply);
   // The server's replies by submission id, until the answer they belong to takes its own.
   final _replies = <String, (int, Map<String, dynamic>)>{};
   // The boxes of the answer frame. joinBoxes says what each one holds in each format.

@@ -53,7 +53,7 @@ class _Result {
 }
 
 class _EvidencePlayState extends State<EvidencePlay> {
-  late final _queue = SubmissionQueue(widget.api.submit, onReply: _onReply);
+  late final _queue = SubmissionQueue(widget.token, widget.api.submit, onReply: _onReply);
   // The server's replies to name answers by submission id, until the answer they belong to takes its own.
   final _replies = <String, Map<String, dynamic>>{};
   final _boxes = List.generate(6, (_) => TextEditingController());

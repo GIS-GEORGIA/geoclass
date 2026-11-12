@@ -47,7 +47,7 @@ class TravelPlay extends StatefulWidget {
 }
 
 class _TravelPlayState extends State<TravelPlay> {
-  late final _queue = SubmissionQueue(widget.ctx.api.submit);
+  late final _queue = SubmissionQueue(widget.ctx.token, widget.ctx.api.submit);
   final _map = MapController();
   final _placeCtl = TextEditingController();
   final _reasonCtl = TextEditingController();
@@ -72,9 +72,7 @@ class _TravelPlayState extends State<TravelPlay> {
   void initState() {
     super.initState();
     // An answer made offline last time goes out as soon as the page opens again.
-    _queue.pending().then((n) {
-      if (n > 0 && mounted) _flush();
-    });
+    _flush();
   }
 
   @override
@@ -91,7 +89,10 @@ class _TravelPlayState extends State<TravelPlay> {
     _retry?.cancel();
     final refused = await _queue.flush();
     if (!mounted) return;
-    if (await _queue.pending() > 0) {
+    // Paused: the answer waits in the queue and goes when the session is open again.
+    if (refused == 'session_paused' || refused == 'session_closed') {
+      widget.ctx.onStopped(refused!.replaceFirst('session_', ''));
+    } else if (await _queue.pending() > 0) {
       setState(() => _stage = _Stage.queued);
       _retry = Timer(const Duration(seconds: 15), _flush);
     } else if (refused != null) {
@@ -99,7 +100,6 @@ class _TravelPlayState extends State<TravelPlay> {
         _stage = _Stage.form;
         _error = refused;
       });
-      if (refused.startsWith('session_')) widget.ctx.onStopped(refused.replaceFirst('session_', ''));
     } else if (_stage == _Stage.queued || _busy) {
       setState(() => _stage = _Stage.sent);
     }
