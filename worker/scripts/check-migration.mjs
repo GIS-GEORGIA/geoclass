@@ -2,10 +2,13 @@
 // foreign keys included). Nothing remote is touched.
 //
 //   node scripts/check-migration.mjs
+//   node scripts/check-migration.mjs --from <file.sql>
 //
 // It applies every migration but the newest, adds scripts/migration-seed.sql, saves every row, applies the
 // newest migration, and checks that every row is still there unchanged. Then it tries what the new schema
-// should allow and refuse.
+// should allow and refuse. With --from it starts instead from a `wrangler d1 export` file (a copy of a real
+// database, one migration behind), so the newest migration is tried on real data. Only counts and checks
+// are printed, never the rows.
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,6 +19,8 @@ const worker = path.dirname(here);
 const wrangler = path.join(worker, 'node_modules', '.bin', 'wrangler');
 const all = readdirSync(path.join(worker, 'migrations')).filter((f) => f.endsWith('.sql')).sort();
 const newest = all.at(-1);
+const at = process.argv.indexOf('--from');
+const from = at > 0 ? path.resolve(process.argv[at + 1] ?? '') : null;
 
 const dir = mkdtempSync(path.join(process.env.TMPDIR ?? tmpdir(), 'geoclass-migration-'));
 mkdirSync(path.join(dir, 'migrations'));
@@ -61,21 +66,27 @@ function check(label, ok) {
 
 try {
   for (const f of all.slice(0, -1)) copyFileSync(path.join(worker, 'migrations', f), path.join(dir, 'migrations', f));
-  apply();
-  wr(['d1', 'execute', 'check', '--file', path.join(here, 'migration-seed.sql'), ...local]);
+  if (from) {
+    wr(['d1', 'execute', 'check', '--file', from, ...local]);
+    const done = sql('SELECT name FROM d1_migrations ORDER BY id').map((r) => r.name);
+    check(`the copy has every migration but ${newest}`, JSON.stringify(done) === JSON.stringify(all.slice(0, -1)));
+  } else {
+    apply();
+    wr(['d1', 'execute', 'check', '--file', path.join(here, 'migration-seed.sql'), ...local]);
+  }
   const before = snapshot();
 
   copyFileSync(path.join(worker, 'migrations', newest), path.join(dir, 'migrations', newest));
   apply();
   const after = snapshot();
-  console.log(`Applied ${newest} on the seeded database.\n`);
+  console.log(`Applied ${newest} on ${from ? 'the copy' : 'the seeded database'}.\n`);
 
   console.log('table          before  after');
   for (const t of Object.keys(TABLES)) {
     console.log(`${t.padEnd(14)} ${String(before[t].length).padStart(6)} ${String(after[t].length).padStart(6)}`);
     check(`${t}: same rows, same values`, sorted(before[t]) === sorted(after[t]));
   }
-  check('the seed has rows in every table', Object.values(before).every((rows) => rows.length > 0));
+  if (!from) check('the seed has rows in every table', Object.values(before).every((rows) => rows.length > 0));
 
   check('quick_check is ok', sql('PRAGMA quick_check')[0].quick_check === 'ok');
   check('no broken foreign keys', sql('PRAGMA foreign_key_check').length === 0);
