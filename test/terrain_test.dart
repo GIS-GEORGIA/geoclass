@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:geoclass/coords.dart';
 import 'package:geoclass/terrain/dem_loader.dart';
 import 'package:geoclass/terrain/elevation.dart';
+import 'package:geoclass/terrain/hillshade.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
@@ -103,6 +104,34 @@ void main() {
       ]) {
         expect(() => AreaMeta.fromJson(bad), throwsFormatException);
       }
+    });
+  });
+
+  group('hillshade', () {
+    final gdal = File('$dir/hillshade.u8').readAsBytesSync();
+
+    test('is the same as gdaldem hillshade, cell for cell', () {
+      final shade = hillshade(grid);
+      expect(shade.length, gdal.length);
+      var worst = 0;
+      for (var i = 0; i < shade.length; i++) {
+        expect(shade[i] == 0, gdal[i] == 0, reason: 'cell $i: ours ${shade[i]}, gdaldem ${gdal[i]}');
+        worst = (shade[i] - gdal[i]).abs() > worst ? (shade[i] - gdal[i]).abs() : worst;
+      }
+      expect(worst, lessThanOrEqualTo(1));
+      expect(shade.where((v) => v == 0).length, 145); // the edge, and the 9 cells around the empty one
+    });
+
+    test('light from the other side darkens what was lit', () {
+      final a = hillshade(grid), b = hillshade(grid, azimuth: 135);
+      final cells = [
+        for (var i = 0; i < a.length; i++)
+          if (a[i] != 0) i,
+      ];
+      final ma = cells.map((i) => a[i]).reduce((x, y) => x + y) / cells.length;
+      final mb = cells.map((i) => b[i]).reduce((x, y) => x + y) / cells.length;
+      final together = cells.map((i) => (a[i] - ma) * (b[i] - mb)).reduce((x, y) => x + y);
+      expect(together, lessThan(0)); // where one is brighter than usual, the other is darker
     });
   });
 

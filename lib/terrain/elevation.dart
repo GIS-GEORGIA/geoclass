@@ -147,6 +147,18 @@ class ElevationGrid {
     return v == meta.nodata ? null : v * meta.scale;
   }
 
+  /// Every cell's height in metres, rows north to south, NaN where there is no data: for algorithms that
+  /// walk the whole grid.
+  Float64List heights() {
+    final out = Float64List(_steps.length);
+    final nodata = meta.nodata, scale = meta.scale;
+    for (var i = 0; i < _steps.length; i++) {
+      final v = _steps[i];
+      out[i] = v == nodata ? double.nan : v * scale;
+    }
+    return out;
+  }
+
   /// UTM position of a cell's centre.
   ({double x, double y}) cellCentre(int row, int col) =>
       (x: meta.bounds[0] + (col + 0.5) * cell, y: meta.bounds[3] - (row + 0.5) * cell);

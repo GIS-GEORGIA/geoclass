@@ -10,6 +10,7 @@ Files:
     area.json    the area's metadata, with the size and sha256 changed to the piece's
     dem.u16      the piece, raw UInt16 little-endian (not compressed: the client gets it decoded)
     expected.json  heights at points (GDAL bilinear) and the UTM position of WGS84 points (GDAL/PROJ)
+    hillshade.u8   gdaldem hillshade of the piece (defaults: Horn, azimuth 315°, altitude 45°), one byte per cell
 """
 
 import gzip
@@ -100,7 +101,13 @@ def main():
         x, y = to_utm.TransformPoint(lon, lat)[:2]
         utm_of.append({'name': name, 'lat': lat, 'lon': lon, 'x': round(x, 4), 'y': round(y, 4)})
 
+    # gdaldem's defaults; edge cells and cells next to the empty one come out as 0 (no data).
+    shaded = gdal.DEMProcessing('', ds, 'hillshade', format='MEM')
+    shade = shaded.GetRasterBand(1).ReadAsArray().astype(np.uint8)
+
     os.makedirs(OUT, exist_ok=True)
+    with open(os.path.join(OUT, 'hillshade.u8'), 'wb') as f:
+        f.write(shade.tobytes())
     with open(os.path.join(OUT, 'area.json'), 'w', encoding='utf-8') as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
         f.write('\n')

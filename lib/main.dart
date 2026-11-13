@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'home_page.dart';
 import 'settings.dart';
 import 'student_page.dart';
+import 'terrain/areas_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +23,9 @@ ThemeData _theme(Brightness brightness) => ThemeData(
 String? joinToken(String? routeName) =>
     RegExp(r'^/(?:#/)?join/([A-Za-z0-9_-]+)$').firstMatch(routeName ?? '')?.group(1);
 
+/// The terrain areas preview: `#/areas`.
+bool isAreasRoute(String? routeName) => RegExp(r'^/(?:#/)?areas/?$').hasMatch(routeName ?? '');
+
 class App extends StatelessWidget {
   final Settings settings;
   const App({super.key, required this.settings});
@@ -32,7 +36,9 @@ class App extends StatelessWidget {
       settings: RouteSettings(name: name),
       builder: (_) => token != null
           ? StudentPage(settings: settings, token: token)
-          : HomePage(settings: settings),
+          : isAreasRoute(name)
+              ? AreasPage(s: settings.s)
+              : HomePage(settings: settings),
     );
   }
 
