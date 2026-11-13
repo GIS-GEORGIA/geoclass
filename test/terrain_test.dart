@@ -1,0 +1,203 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:geoclass/coords.dart';
+import 'package:geoclass/terrain/dem_loader.dart';
+import 'package:geoclass/terrain/elevation.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:latlong2/latlong.dart';
+
+/// The terrain grid against GDAL. test/fixtures/terrain is a 40×30 piece of the real Kazbegi package
+/// with one empty cell, written with GDAL's answers by tool/areas/make_test_fixture.py.
+void main() {
+  const dir = 'test/fixtures/terrain';
+  final metaJson = jsonDecode(File('$dir/area.json').readAsStringSync()) as Map<String, dynamic>;
+  final bytes = File('$dir/dem.u16').readAsBytesSync();
+  final expected = jsonDecode(File('$dir/expected.json').readAsStringSync()) as Map<String, dynamic>;
+  final meta = AreaMeta.fromJson(metaJson);
+  final grid = ElevationGrid.fromBytes(meta, bytes);
+
+  group('grid', () {
+    test('reads the size, position and scale from area.json', () {
+      expect(meta.zone, 38);
+      expect([meta.width, meta.height, meta.cell], [40, 30, 30.0]);
+      expect(meta.attribution, startsWith('produced using Copernicus WorldDEM-30'));
+      expect(meta.surface, contains('DSM'));
+    });
+
+    test('cell values are the stored steps of 0.1 m, little-endian', () {
+      final raw = ByteData.sublistView(bytes);
+      expect(grid.cellHeight(0, 0), closeTo(raw.getUint16(0, Endian.little) * 0.1, 1e-9));
+      expect(grid.cellHeight(12, 20), isNull); // the empty cell
+      expect(grid.cellHeight(-1, 0), isNull);
+      expect(grid.cellHeight(0, 40), isNull);
+    });
+
+    test('heights between cells agree with GDAL bilinear, empty cells included', () {
+      final points = expected['heights'] as List;
+      var empty = 0;
+      for (final p in points) {
+        final h = grid.heightAtUtm((p['x'] as num).toDouble(), (p['y'] as num).toDouble());
+        if (p['h'] == null) {
+          expect(h, isNull, reason: '$p');
+          empty++;
+        } else {
+          expect(h, closeTo((p['h'] as num).toDouble(), 0.001), reason: '$p');
+        }
+      }
+      expect(points.length, greaterThan(40));
+      expect(empty, 3);
+    });
+
+    test('outside the grid there is no height', () {
+      final b = meta.bounds;
+      expect(grid.heightAtUtm(b[0] - 1, b[3] - 100), isNull);
+      expect(grid.heightAtUtm(b[0] + 100, b[1] - 0.01), isNull);
+      expect(grid.heightAtUtm(b[0], b[3]), grid.cellHeight(0, 0));
+    });
+
+    test('map positions convert to UTM as GDAL does', () {
+      for (final p in expected['utm'] as List) {
+        final u = toUtm((p['lat'] as num).toDouble(), (p['lon'] as num).toDouble(), zone: meta.zone);
+        expect(u.easting, closeTo((p['x'] as num).toDouble(), 0.01), reason: p['name'] as String);
+        expect(u.northing, closeTo((p['y'] as num).toDouble(), 0.01), reason: p['name'] as String);
+      }
+    });
+
+    test('a height asked for by map position is the one at its UTM point', () {
+      final c = grid.cellCentre(7, 9);
+      final p = fromUtm(meta.zone, c.x, c.y);
+      expect(grid.heightAt(p), closeTo(grid.cellHeight(7, 9)!, 0.01));
+      expect(grid.heightAt(const LatLng(41.7, 44.8)), isNull); // Tbilisi, far outside
+    });
+
+    test('the outline goes round the grid', () {
+      final o = grid.outline;
+      expect(o, hasLength(4));
+      expect(o[0].latitude, lessThan(o[3].latitude));
+      expect(o[0].longitude, lessThan(o[1].longitude));
+      expect(grid.heightAt(o[0]), isNotNull);
+    });
+
+    test('a grid of the wrong size is refused', () {
+      expect(() => ElevationGrid.fromBytes(meta, Uint8List(bytes.length - 2)), throwsFormatException);
+    });
+
+    test('area.json the app cannot use is refused', () {
+      Map<String, dynamic> changed(void Function(Map<String, dynamic>) f) {
+        final j = jsonDecode(jsonEncode(metaJson)) as Map<String, dynamic>;
+        f(j);
+        return j;
+      }
+
+      for (final bad in [
+        changed((j) => j['crs'] = 'EPSG:4326'),
+        changed((j) => j['grid']['type'] = 'float32'),
+        changed((j) => j['width'] = 41),
+        changed((j) => j['width'] = 5000),
+        changed((j) => j['id'] = '../x'),
+        changed((j) => j['grid']['sha256'] = 'abc'),
+      ]) {
+        expect(() => AreaMeta.fromJson(bad), throwsFormatException);
+      }
+    });
+  });
+
+  group('loader', () {
+    final catalog = {
+      'areas': [
+        {'id': 'fixture', 'version': 1, 'ka': 'ნიმუში', 'en': 'Sample', 'bbox': metaJson['bbox'], 'min': 1, 'max': 2},
+      ],
+      'attribution': metaJson['attribution'],
+    };
+
+    http.Response respond(http.Request req, {Uint8List? grid, Map<String, dynamic>? area}) => switch (req.url.path) {
+      '/areas/catalog.json' => http.Response.bytes(utf8.encode(jsonEncode(catalog)), 200),
+      '/areas/fixture/1/area.json' => http.Response.bytes(utf8.encode(jsonEncode(area ?? metaJson)), 200),
+      '/areas/fixture/1/dem.u16.gz' => http.Response.bytes(grid ?? bytes, 200),
+      _ => http.Response('not found', 404),
+    };
+
+    MockClient server({Uint8List? grid, Map<String, dynamic>? area, List<String>? log}) => MockClient((req) async {
+      log?.add(req.url.path);
+      return respond(req, grid: grid, area: area);
+    });
+
+    test('lists the catalog', () async {
+      final areas = await DemLoader(client: server(), base: 'https://x.test').catalog();
+      expect(areas.single.id, 'fixture');
+      expect(areas.single.name('ka'), 'ნიმუში');
+    });
+
+    test('loads a grid, and the same grid again without asking twice', () async {
+      final log = <String>[];
+      final loader = DemLoader(
+        client: server(log: log),
+        base: 'https://x.test',
+      );
+      final a = await loader.load('fixture', 1);
+      final b = await loader.load('fixture', 1);
+      expect(identical(a, b), isTrue);
+      expect(a.cellHeight(0, 0), grid.cellHeight(0, 0));
+      expect(log, ['/areas/fixture/1/area.json', '/areas/fixture/1/dem.u16.gz']);
+    });
+
+    test('a damaged or cut-off grid is refused', () async {
+      final damaged = Uint8List.fromList(bytes)..[100] ^= 1;
+      for (final g in [damaged, Uint8List.sublistView(bytes, 0, bytes.length - 2)]) {
+        final loader = DemLoader(
+          client: server(grid: g),
+          base: 'https://x.test',
+        );
+        await expectLater(
+          loader.load('fixture', 1),
+          throwsA(isA<DemError>().having((e) => e.key, 'key', 'dem_bad_data')),
+        );
+      }
+    });
+
+    test('area.json for another area is refused', () async {
+      final other = Map<String, dynamic>.from(metaJson)..['id'] = 'mestia';
+      final loader = DemLoader(
+        client: server(area: other),
+        base: 'https://x.test',
+      );
+      await expectLater(loader.load('fixture', 1), throwsA(isA<DemError>()));
+    });
+
+    test('a missing area says so', () async {
+      final loader = DemLoader(client: server(), base: 'https://x.test');
+      await expectLater(
+        loader.load('mestia', 1),
+        throwsA(isA<DemError>().having((e) => e.key, 'key', 'dem_not_found')),
+      );
+    });
+
+    test('no connection says so, and the next try asks again', () async {
+      var down = true;
+      final loader = DemLoader(
+        client: MockClient((req) async {
+          if (down) throw const SocketException('offline');
+          return respond(req);
+        }),
+        base: 'https://x.test',
+      );
+      await expectLater(loader.load('fixture', 1), throwsA(isA<DemError>().having((e) => e.key, 'key', 'dem_offline')));
+      down = false;
+      expect((await loader.load('fixture', 1)).width, 40);
+    });
+
+    test('a bad area id is not even asked for', () async {
+      final log = <String>[];
+      final loader = DemLoader(
+        client: server(log: log),
+        base: 'https://x.test',
+      );
+      await expectLater(loader.load('../secret', 1), throwsA(isA<DemError>()));
+      expect(log, isEmpty);
+    });
+  });
+}

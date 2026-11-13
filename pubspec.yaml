@@ -37,6 +37,8 @@ dependencies:
   flutter_map: ^8.3.2
   latlong2: ^0.9.1
   http: ^1.6.0
+  # Checks a terrain grid's sha256 against its area.json (lib/terrain). Already in the build through http.
+  crypto: ^3.0.6
   shared_preferences: ^2.5.6
   qr_flutter: ^4.1.0
   url_launcher: ^6.3.3
