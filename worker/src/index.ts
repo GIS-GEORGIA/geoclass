@@ -718,7 +718,7 @@ async function createSession(env: Env, request: Request, actor: Actor): Promise<
   if (typeof body.game !== 'string' || !knownGame(body.game)) throw new HttpError(400, 'bad_game');
   const module = gameModule(body.game);
   const settings = module
-    ? module.settings(body as Record<string, unknown>)
+    ? await module.settings(body as Record<string, unknown>, env)
     : TASK_GAMES.includes(body.game)
     ? { tasks: validateTasks(body.game, body.tasks) }
     : body.game === 'cards'

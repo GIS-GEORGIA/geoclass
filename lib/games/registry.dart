@@ -6,9 +6,10 @@ import 'profile.dart';
 import 'slope.dart';
 import 'travel.dart';
 import 'viewshed.dart';
+import 'watershed.dart';
 
 final Map<String, GameModule> _modules = {
-  for (final g in const <GameModule>[TravelGame(), AerialGame(), ProfileGame(), SlopeGame(), ViewshedGame()]) g.id: g,
+  for (final g in const <GameModule>[TravelGame(), AerialGame(), ProfileGame(), SlopeGame(), ViewshedGame(), WatershedGame()]) g.id: g,
 };
 
 /// Adds a game. A new game is one module and one line in the list above; tests add their own.
@@ -18,7 +19,7 @@ void registerGame(GameModule module) => _modules[module.id] = module;
 GameModule? gameModule(String id) => _modules[id];
 
 /// The games a teacher can pick from, in this order, then any other registered game.
-const _order = ['travel', 'coordinates', 'aerial', 'evidence', 'mapping', 'cards', 'plates', 'puzzle', 'layout', 'profile', 'slope', 'viewshed'];
+const _order = ['travel', 'coordinates', 'aerial', 'evidence', 'mapping', 'cards', 'plates', 'puzzle', 'layout', 'profile', 'slope', 'viewshed', 'watershed'];
 
 List<String> pickableGames() => [..._order, ..._modules.keys.where((id) => !_order.contains(id))];
 

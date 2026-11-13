@@ -1,0 +1,10 @@
+{
+ "about": "Polygons on the fixture grid ([row, col] vertices), scored by lib/terrain/watershed.dart and worker/src/games/watershed.ts alike. basin: runs, or the index of a basin in expected.json.",
+ "cases": [
+  {"note": "a 2 × 3 rectangle on cell edges, a cell to the east of a 2 × 3 basin", "poly": [[2, 2], [2, 5], [4, 5], [4, 2]], "basin": [[2, 1, 4], [3, 1, 4]], "cells": 6, "overlap": 4, "score": 50, "simple": true},
+  {"note": "round the fixture's second basin, roughly", "poly": [[33.17, 4.62], [36.5, 30.25], [52.91, 44.08], [82.33, 40.5], [79.0, 12.75], [60.25, 3.4]], "basin": 1, "cells": 1560, "overlap": 1084, "score": 64, "simple": true},
+  {"note": "inside it, with a notch", "poly": [[40.0, 10.0], [45.55, 38.5], [70.12, 41.07], [75.9, 15.01], [58.0, 26.5]], "basin": 1, "cells": 577, "overlap": 552, "score": 45, "simple": true},
+  {"note": "the whole piece", "poly": [[0, 0], [0, 150], [120, 150], [120, 0]], "basin": 1, "cells": 18000, "overlap": 1205, "score": 7, "simple": true},
+  {"note": "a bow tie: refused", "poly": [[0, 0], [0, 4], [4, 0], [4, 4]], "basin": [[2, 1, 4]], "simple": false}
+ ]
+}

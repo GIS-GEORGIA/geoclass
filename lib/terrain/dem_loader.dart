@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 
 import '../api.dart';
 import 'elevation.dart';
+import 'watershed.dart';
 
 /// Why an area could not be loaded. [key] is a translation key.
 class DemError implements Exception {
@@ -28,6 +29,7 @@ class DemLoader {
   final String _base;
   final Duration timeout;
   final _grids = <String, Future<ElevationGrid>>{};
+  final _flows = <String, Future<FlowGrid>>{};
 
   DemLoader({http.Client? client, String? base, this.timeout = const Duration(seconds: 30)})
     : _client = client ?? http.Client(),
@@ -45,19 +47,45 @@ class DemLoader {
 
   /// One area's grid. Asking again for the same area and version gives the same grid, fetched once;
   /// a failed load is forgotten, so the next call tries again.
-  Future<ElevationGrid> load(String id, int version) {
-    final key = '$id/$version';
-    final cached = _grids[key];
+  Future<ElevationGrid> load(String id, int version) => _once(_grids, '$id/$version', () => _load(id, version));
+
+  /// One area's flow directions (tool/areas/build_watershed.py), checked against watershed.json's sha256 and
+  /// the grid's size; kept like the grids.
+  Future<FlowGrid> loadFlow(String id, int version) => _once(_flows, '$id/$version', () => _loadFlow(id, version));
+
+  static Future<T> _once<T>(Map<String, Future<T>> cache, String key, Future<T> Function() start) {
+    final cached = cache[key];
     if (cached != null) return cached;
-    final loading = _load(id, version);
-    _grids[key] = loading;
+    final loading = start();
+    cache[key] = loading;
     loading.then(
       (_) {},
       onError: (Object _) {
-        if (identical(_grids[key], loading)) _grids.remove(key);
+        if (identical(cache[key], loading)) cache.remove(key);
       },
     );
     return loading;
+  }
+
+  Future<FlowGrid> _loadFlow(String id, int version) async {
+    final grid = await load(id, version);
+    final String sha;
+    final int streamCells;
+    try {
+      final j = jsonDecode(utf8.decode(await _get('areas/$id/$version/watershed.json'))) as Map<String, dynamic>;
+      sha = j['sha256'] as String;
+      streamCells = (j['stream_cells'] as num).toInt();
+    } on DemError {
+      rethrow;
+    } on Object catch (e) {
+      throw DemError('dem_bad_data', '$e');
+    }
+    final bytes = await _get('areas/$id/$version/flow.u8.gz');
+    if (bytes.length != grid.width * grid.height) {
+      throw DemError('dem_bad_data', 'flow has ${bytes.length} bytes, expected ${grid.width * grid.height}');
+    }
+    if (sha256.convert(bytes).toString() != sha) throw DemError('dem_bad_data', 'flow sha256 differs');
+    return FlowGrid(grid.width, grid.height, bytes, streamCells: streamCells);
   }
 
   Future<ElevationGrid> _load(String id, int version) async {

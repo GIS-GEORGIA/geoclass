@@ -21,8 +21,11 @@ export interface GameModule<S extends Record<string, unknown> = Record<string, u
    * find the right answer. 'replace': a new answer from a student replaces their earlier one.
    */
   answers: 'first' | 'replace';
-  /** The teacher's settings when the session is made, from the request body. Throws HttpError 400 if bad. */
-  settings(body: Record<string, unknown>): S;
+  /**
+   * The teacher's settings when the session is made, from the request body. Throws HttpError 400 if bad.
+   * A game may read its data from the bindings (the watershed game reads the area's flow directions from R2).
+   */
+  settings(body: Record<string, unknown>, env: Env): S | Promise<S>;
   /** What join gives a student: no answers the student should find out only by answering. */
   studentView(settings: S, sessionId: string): Record<string, unknown>;
   /** Only the known fields of an answer, so nothing else a client sends gets stored. Throws HttpError 400 if bad. */

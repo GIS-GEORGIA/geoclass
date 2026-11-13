@@ -13,6 +13,8 @@ beforeAll(async () => {
   await env.AREAS.put('areas/catalog.json', JSON.stringify({ areas: [{ id: 'kazbegi', version: 1 }] }));
   await env.AREAS.put('areas/kazbegi/1/area.json', JSON.stringify({ id: 'kazbegi', width: 2, height: 1 }));
   await env.AREAS.put('areas/kazbegi/1/dem.u16.gz', await gzip(raw));
+  await env.AREAS.put('areas/kazbegi/1/flow.u8.gz', await gzip(new Uint8Array([7, 255])));
+  await env.AREAS.put('areas/kazbegi/1/watershed.json', JSON.stringify({ file: 'flow.u8.gz' }));
   await env.AREAS.put('areas/secret.txt', 'not an area file');
 });
 
@@ -71,6 +73,16 @@ describe('area packages', () => {
       expect(res.status, path).toBe(404);
       expect(await res.text(), path).not.toContain('not an area file');
     }
+  });
+
+  it('serves the flow directions like the grid, and their description', async () => {
+    const res = await get('/areas/kazbegi/1/flow.u8.gz');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
+    expect(res.headers.get('Content-Type')).toBe('application/octet-stream');
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array([7, 255]));
+    expect(await (await get('/areas/kazbegi/1/watershed.json')).json()).toEqual({ file: 'flow.u8.gz' });
+    expect(areaKey('/areas/kazbegi/1/flow.u8')).toBeNull();
   });
 
   it('refuses to change anything', async () => {

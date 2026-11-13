@@ -1890,15 +1890,16 @@ describe('viewshed game', () => {
 describe('game registry', () => {
   // A game that exists only in this test: registering this one module is all it takes.
   type Quiz = { questions: { q: string; right: string }[] };
+  function readQuiz(raw: unknown): Quiz {
+    const questions = (raw as Quiz | undefined)?.questions;
+    if (!Array.isArray(questions) || questions.length === 0) throw new HttpError(400, 'bad_quiz');
+    return { questions: questions.map((x) => ({ q: String(x.q), right: String(x.right) })) };
+  }
   const quiz: GameModule<Quiz> = {
     id: 'test-quiz',
     timed: false,
     answers: 'first',
-    settings(body) {
-      const questions = (body.quiz as Quiz | undefined)?.questions;
-      if (!Array.isArray(questions) || questions.length === 0) throw new HttpError(400, 'bad_quiz');
-      return { questions: questions.map((x) => ({ q: String(x.q), right: String(x.right) })) };
-    },
+    settings: (body) => readQuiz(body.quiz),
     studentView: (s) => ({ questions: s.questions.map((x) => ({ q: x.q })) }),
     validateAnswer(raw) {
       const text = (raw as { text?: unknown } | null)?.text;
@@ -1911,7 +1912,7 @@ describe('game registry', () => {
       return { round: round as number, distance: null, score: answer.text === question.right ? 100 : 0 };
     },
     feedback: (s, row) => ({ score: row.score, right: s.questions[row.round]?.right }),
-    restoreSettings: (raw) => quiz.settings({ quiz: raw }),
+    restoreSettings: readQuiz,
   };
   registerGame(quiz);
   registerGame({ ...quiz, id: 'test-quiz-timed', timed: true });
@@ -2047,5 +2048,121 @@ describe('student nicknames', () => {
     await pick(token, 'Borjomi Deer');
     await student('forget', { token, participantId: 'nick-student-01' });
     expect((await polled(session.id)).nicknames).toEqual({});
+  });
+});
+
+describe('watershed game', () => {
+  // A 30 × 30 area: the cells along the edge drain out of it; inside, water runs east or west to the middle
+  // column, and down it to the south. The basin at (20, 15) is rows 1 to 20 of the inside: 20 × 28 cells.
+  const W = 30;
+  const flow = new Uint8Array(W * W);
+  for (let r = 0; r < W; r++) {
+    for (let c = 0; c < W; c++) {
+      flow[r * W + c] = r === 0 ? 1 : r === W - 1 ? 255 : c === 0 ? 3 : c === W - 1 ? 7 : c < 15 ? 7 : c > 15 ? 3 : 5;
+    }
+  }
+  const area = { id: 'basin-test', version: 1 };
+  const basin = Array.from({ length: 20 }, (_, i) => [i + 1, 1, 29]);
+  beforeEach(async () => {
+    const gz = new Uint8Array(await new Response(new Blob([flow]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+    await env.AREAS.put('areas/basin-test/1/area.json', JSON.stringify({ id: 'basin-test', width: W, height: W }));
+    await env.AREAS.put('areas/basin-test/1/flow.u8.gz', gz);
+  });
+
+  const game = (over: Record<string, unknown> = {}) =>
+    call('POST', 'sessions', { name: 'Basin', game: 'watershed', watershed: { area, outlet: { row: 20, col: 15 }, ...over } });
+  const play = (token: string, poly: unknown, over: Record<string, unknown> = {}) =>
+    student('submit', { token, submissionId: id('sub'), participantId: 'basin-player-01', answer: { poly }, lat: 42.2, lon: 42.7, round: 0, ...over });
+
+  it('works the basin out on the server, from the area’s flow directions', async () => {
+    const res = await game();
+    expect(res.status).toBe(201);
+    const { session } = (await res.json()) as { session: { settings: Record<string, unknown> } };
+    expect(session.settings).toEqual({ area, outlet: { row: 20, col: 15 }, width: W, height: W, cells: 560, runs: basin });
+  });
+
+  it('refuses outlets with no playable basin, and areas without flow directions', async () => {
+    // The same area, but the top row drains south into it: every basin reaching row 1 is cut off by the edge.
+    const open = flow.map((d, i) => (i < W ? 5 : d));
+    const gz = new Uint8Array(await new Response(new Blob([open]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+    await env.AREAS.put('areas/basin-edge/1/area.json', JSON.stringify({ id: 'basin-edge', width: W, height: W }));
+    await env.AREAS.put('areas/basin-edge/1/flow.u8.gz', gz);
+    const bad: [Record<string, unknown>, string][] = [
+      [{ area: { id: 'basin-edge', version: 1 } }, 'basin_edge'],
+      // A cell on a side stream, reached only by the cells west of it in its row.
+      [{ outlet: { row: 5, col: 3 } }, 'basin_small'],
+      [{ outlet: { row: 30, col: 15 } }, 'bad_watershed'],
+      [{ outlet: { row: 1.5, col: 15 } }, 'bad_watershed'],
+      [{ area: { id: 'kazbegi', version: 1 } }, 'no_flow'],
+      [{ area: { id: 'Basin', version: 1 } }, 'bad_watershed'],
+    ];
+    for (const [over, code] of bad) {
+      const res = await game(over);
+      expect(res.status, JSON.stringify(over)).toBe(400);
+      expect(((await res.json()) as { error: string }).error, JSON.stringify(over)).toBe(code);
+    }
+  });
+
+  it('students get the outlet, not the basin; the score is the overlap', async () => {
+    const { token } = (await (await game()).json()) as { token: string };
+    const joined = (await (await student('join', { token })).json()) as { settings: unknown };
+    expect(joined.settings).toEqual({ area, outlet: { row: 20, col: 15 } });
+    // Rows 1 to 20, columns 1 to 15: half the basin, all of it in.
+    const half = await play(token, [
+      [1, 1],
+      [1, 15],
+      [21, 15],
+      [21, 1],
+    ]);
+    expect(await half.json()).toEqual({ ok: true, duplicate: false, score: 50, basin });
+    expect(await (await play(token, [[1, 1], [1, 29], [21, 29], [21, 1]])).json()).toMatchObject({ duplicate: true, score: 50 });
+    expect(await (await play(token, [[1, 1], [1, 29], [21, 29], [21, 1]], { participantId: 'basin-player-02' })).json()).toMatchObject({ score: 100 });
+  });
+
+  it('refuses polygons it cannot score', async () => {
+    const { token } = (await (await game()).json()) as { token: string };
+    for (const poly of [
+      [
+        [1, 1],
+        [1, 5],
+      ],
+      [
+        [0, 0],
+        [0, 4],
+        [4, 0],
+        [4, 4],
+      ],
+      [
+        [1, 1],
+        [1, 31],
+        [5, 5],
+      ],
+      [
+        [1, 1],
+        [1, 'x'],
+        [5, 5],
+      ],
+      Array.from({ length: 101 }, (_, i) => [10 + 5 * Math.sin(i / 16), 10 + 5 * Math.cos(i / 16)]),
+    ]) {
+      expect((await play(token, poly)).status, JSON.stringify(poly).slice(0, 60)).toBe(400);
+    }
+    expect((await play(token, [[1, 1], [1, 5], [5, 5]], { round: 1 })).status).toBe(400);
+  });
+
+  it('survives backup and restore, scored again; a tampered basin is refused', async () => {
+    const { session, token } = (await (await game()).json()) as { session: { id: string }; token: string };
+    await play(token, [[1, 1], [1, 15], [21, 15], [21, 1]]);
+    const file = (await (await call('GET', `backup?session=${session.id}`)).json()) as {
+      sessions: { settings: { runs: number[][]; cells: number } }[];
+      responses: { score: number }[];
+    };
+    file.responses[0].score = 100;
+    await call('DELETE', `sessions/${session.id}`);
+    const broken = structuredClone(file);
+    broken.sessions[0].settings.runs[3] = [1, 1, 29]; // out of order
+    expect((await call('POST', 'restore', broken)).status).toBe(400);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    const rows = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { responses: { score: number }[] };
+    expect(rows.responses[0].score).toBe(50);
   });
 });

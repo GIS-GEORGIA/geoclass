@@ -221,6 +221,8 @@ class _SessionListState extends State<_SessionList> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialog) => AlertDialog(
+          // The list of games is longer than a small window or a phone held sideways.
+          scrollable: true,
           title: Text(s['new_session']),
           content: Column(
             mainAxisSize: MainAxisSize.min,

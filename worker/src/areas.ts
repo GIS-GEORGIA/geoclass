@@ -3,12 +3,14 @@
 //   GET /areas/catalog.json                  the list of areas; changes when one is added
 //   GET /areas/<id>/<version>/area.json      size, position, scale, attribution
 //   GET /areas/<id>/<version>/dem.u16.gz     the height grid, stored gzip-compressed
+//   GET /areas/<id>/<version>/watershed.json the flow directions' checksum and source (tool/areas/build_watershed.py)
+//   GET /areas/<id>/<version>/flow.u8.gz     where water leaves each cell, stored gzip-compressed
 //
 // A new build gets a new version, so versioned files never change and are cached for a year.
 // Anything else under /areas/ is a 404: only these names are looked up, never a path taken as is.
 
 const CATALOG = /^\/areas\/catalog\.json$/;
-const FILE = /^\/areas\/([a-z0-9-]{1,40})\/(\d{1,4})\/(area\.json|dem\.u16\.gz)$/;
+const FILE = /^\/areas\/([a-z0-9-]{1,40})\/(\d{1,4})\/(area\.json|dem\.u16\.gz|watershed\.json|flow\.u8\.gz)$/;
 
 const YEAR = 'public, max-age=31536000, immutable';
 const FIVE_MINUTES = 'public, max-age=300';

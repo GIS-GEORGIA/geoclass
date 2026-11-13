@@ -11,7 +11,8 @@ tiles instead (used by the tests).
 Each area gets <out>/<id>/<version>/:
     area.json   size, position, scale, height range, source and the required attribution
     dem.u16.gz  the grid: UInt16 little-endian, rows north to south, 0.1 m per step, 65535 = no data
-and <out>/catalog.json lists every area built so far.
+and <out>/catalog.json lists every area built so far. tool/areas/build_watershed.py then adds the flow
+directions (flow.u8.gz, watershed.json) for the watershed game.
 
 The grid is UTM zone 38N (EPSG:32638) with 30 m square cells aligned to multiples of 30 m, so slope and
 distance need no latitude correction. Resampling is bilinear, on a mosaic of the tiles, with exact projection. Needs only GDAL's Python bindings and NumPy.
