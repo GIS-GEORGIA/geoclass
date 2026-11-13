@@ -11,6 +11,8 @@ Files:
     dem.u16      the piece, raw UInt16 little-endian (not compressed: the client gets it decoded)
     expected.json  heights at points (GDAL bilinear) and the UTM position of WGS84 points (GDAL/PROJ)
     hillshade.u8   gdaldem hillshade of the piece (defaults: Horn, azimuth 315°, altitude 45°), one byte per cell
+    profile.json   a three-vertex line across the piece (through the empty cell) and its profile: GDAL bilinear
+                   heights every half cell, geodesic distances (PROJ's geod), and the summary numbers
 """
 
 import gzip
@@ -19,6 +21,7 @@ import json
 import os
 
 import numpy as np
+from pyproj import Geod
 from osgeo import gdal, osr
 
 import build_area as ba
@@ -105,7 +108,12 @@ def main():
     shaded = gdal.DEMProcessing('', ds, 'hillshade', format='MEM')
     shade = shaded.GetRasterBand(1).ReadAsArray().astype(np.uint8)
 
+    profile = make_profile(bounds, to_utm, osr.CoordinateTransformation(utm, wgs), gdal_bilinear)
+
     os.makedirs(OUT, exist_ok=True)
+    with open(os.path.join(OUT, 'profile.json'), 'w', encoding='utf-8') as f:
+        json.dump(profile, f, indent=1)
+        f.write('\n')
     with open(os.path.join(OUT, 'hillshade.u8'), 'wb') as f:
         f.write(shade.tobytes())
     with open(os.path.join(OUT, 'area.json'), 'w', encoding='utf-8') as f:
@@ -117,6 +125,51 @@ def main():
         json.dump({'heights': heights_at, 'utm': utm_of, 'gdal': gdal.__version__}, f, indent=1)
         f.write('\n')
     print(f'wrote {OUT}: {W}×{H} cells, {len(heights_at)} heights, {len(utm_of)} UTM points')
+
+
+# Line vertices as (row, column) of the piece, in cells from its top-left corner. The middle segment crosses
+# the empty cell, so the profile has a gap.
+LINE = [(3.5, 3.5), (25.5, 14.5), (2.5, 25.5), (20.5, 37.5)]
+
+
+def make_profile(bounds, to_utm, from_utm, height_at):
+    """The profile as the app is meant to make it, worked out independently: vertices are given as WGS84,
+    samples go every half cell or less along the straight UTM segment between vertices, heights are GDAL
+    bilinear, and distance along the line is the geodesic length of each segment shared out evenly."""
+    geod = Geod(ellps='WGS84')
+    vertices = []
+    for row, col in LINE:
+        lon, lat = from_utm.TransformPoint(bounds[0] + col * ba.CELL, bounds[3] - row * ba.CELL)[:2]
+        vertices.append((round(lat, 7), round(lon, 7)))
+    utm = [to_utm.TransformPoint(lon, lat)[:2] for lat, lon in vertices]
+
+    samples = []  # (distance, height or None)
+    sections = []
+    start = 0.0
+    for k in range(len(vertices) - 1):
+        (x0, y0), (x1, y1) = utm[k], utm[k + 1]
+        length = geod.inv(vertices[k][1], vertices[k][0], vertices[k + 1][1], vertices[k + 1][0])[2]
+        steps = max(1, int(np.ceil(np.hypot(x1 - x0, y1 - y0) / (ba.CELL / 2))))
+        for i in range(0 if k == 0 else 1, steps + 1):
+            t = i / steps
+            samples.append((start + t * length, height_at(round(x0 + t * (x1 - x0), 6), round(y0 + t * (y1 - y0), 6))))
+        a, b = height_at(x0, y0), height_at(x1, y1)
+        sections.append({'start': start, 'length': length, 'from': a, 'to': b,
+                         'grade': None if a is None or b is None else (b - a) / length})
+        start += length
+
+    heights = [h for _, h in samples if h is not None]
+    ups = [b[1] - a[1] for a, b in zip(samples, samples[1:]) if a[1] is not None and b[1] is not None]
+    return {
+        'vertices': [{'lat': lat, 'lon': lon} for lat, lon in vertices],
+        'samples': [{'d': round(d, 4), 'h': h} for d, h in samples],
+        'length': round(start, 4),
+        'min': min(heights),
+        'max': max(heights),
+        'ascent': round(sum(u for u in ups if u > 0), 4),
+        'descent': round(-sum(u for u in ups if u < 0), 4),
+        'sections': sections,
+    }
 
 
 if __name__ == '__main__':

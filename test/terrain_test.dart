@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -7,6 +8,7 @@ import 'package:geoclass/coords.dart';
 import 'package:geoclass/terrain/dem_loader.dart';
 import 'package:geoclass/terrain/elevation.dart';
 import 'package:geoclass/terrain/hillshade.dart';
+import 'package:geoclass/terrain/profile.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
@@ -132,6 +134,76 @@ void main() {
       final mb = cells.map((i) => b[i]).reduce((x, y) => x + y) / cells.length;
       final together = cells.map((i) => (a[i] - ma) * (b[i] - mb)).reduce((x, y) => x + y);
       expect(together, lessThan(0)); // where one is brighter than usual, the other is darker
+    });
+  });
+
+  group('profile', () {
+    final ref = jsonDecode(File('$dir/profile.json').readAsStringSync()) as Map<String, dynamic>;
+    final line = [
+      for (final v in ref['vertices'] as List) LatLng((v['lat'] as num).toDouble(), (v['lon'] as num).toDouble()),
+    ];
+    final profile = TerrainProfile.along(grid, line);
+    double? num_(Object? v) => (v as num?)?.toDouble();
+
+    test('samples every half cell, with GDAL heights and geodesic distances', () {
+      final want = ref['samples'] as List;
+      expect(profile.samples, hasLength(want.length));
+      for (var i = 0; i < want.length; i++) {
+        final got = profile.samples[i], w = want[i];
+        expect(got.distance, closeTo(num_(w['d'])!, 0.001), reason: 'sample $i');
+        if (w['h'] == null) {
+          expect(got.height, isNull, reason: 'sample $i');
+        } else {
+          expect(got.height, closeTo(num_(w['h'])!, 0.01), reason: 'sample $i');
+        }
+      }
+      for (var i = 1; i < profile.samples.length; i++) {
+        final a = profile.samples[i - 1], b = profile.samples[i];
+        expect(math.sqrt(math.pow(b.x - a.x, 2) + math.pow(b.y - a.y, 2)), lessThanOrEqualTo(grid.cell / 2 + 1e-9));
+      }
+      expect(profile.samples.where((s) => s.height == null), hasLength(2)); // crossing the empty cell
+    });
+
+    test('length, lowest, highest, climb and drop are as GDAL and PROJ give them', () {
+      expect(profile.length, closeTo(num_(ref['length'])!, 0.001));
+      expect(profile.lowest!.height, closeTo(num_(ref['min'])!, 0.01));
+      expect(profile.highest!.height, closeTo(num_(ref['max'])!, 0.01));
+      expect(profile.ascent, closeTo(num_(ref['ascent'])!, 0.05));
+      expect(profile.descent, closeTo(num_(ref['descent'])!, 0.05));
+      // What goes up and comes down adds up to the change from end to end, gap aside.
+      final first = profile.samples.first.height!, last = profile.samples.last.height!;
+      expect(profile.ascent - profile.descent, closeTo(last - first, 30));
+    });
+
+    test('each section has its length and mean grade, and the steepest is found', () {
+      final want = ref['sections'] as List;
+      expect(profile.sections, hasLength(3));
+      for (var k = 0; k < 3; k++) {
+        final got = profile.sections[k], w = want[k];
+        expect(got.start, closeTo(num_(w['start'])!, 0.001));
+        expect(got.length, closeTo(num_(w['length'])!, 0.001));
+        expect(got.grade, closeTo(num_(w['grade'])!, 1e-5));
+      }
+      expect(profile.steepest!.index, 1);
+      expect(profile.steepest!.slopeDegrees, closeTo(math.atan(num_(want[1]['grade'])!) * 180 / math.pi, 1e-3));
+    });
+
+    test('finds the sample nearest a distance, and where it is on the map', () {
+      expect(profile.nearest(-5), same(profile.samples.first));
+      expect(profile.nearest(1e9), same(profile.samples.last));
+      final s = profile.samples[40];
+      expect(profile.nearest(s.distance + 1), same(s));
+      expect(grid.heightAt(profile.positionOf(s)), closeTo(s.height!, 0.01));
+    });
+
+    test('a line off the area has no heights, and a line needs two vertices', () {
+      final off = TerrainProfile.along(grid, const [LatLng(41.70, 44.80), LatLng(41.70, 44.801)]);
+      expect(off.samples.every((s) => s.height == null), isTrue);
+      expect(off.lowest, isNull);
+      expect(off.steepest, isNull);
+      expect(off.ascent, 0);
+      expect(() => TerrainProfile.along(grid, [line.first]), throwsArgumentError);
+      expect(() => TerrainProfile.along(grid, const [LatLng(35, 30), LatLng(50, 60)]), throwsArgumentError);
     });
   });
 
