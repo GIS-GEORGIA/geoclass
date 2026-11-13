@@ -167,6 +167,22 @@ class TerrainProfile {
         : samples[hi];
   }
 
+  /// The sample nearest to a point on the map, measured on the grid: for picking a place on the line by
+  /// touching the map. Null when the point is further than [within] metres from every sample.
+  ProfileSample? closestTo(LatLng p, {double within = double.infinity}) {
+    final u = toUtm(p.latitude, p.longitude, zone: grid.meta.zone);
+    ProfileSample? best;
+    var bestD = within * within;
+    for (final s in samples) {
+      final d = (s.x - u.easting) * (s.x - u.easting) + (s.y - u.northing) * (s.y - u.northing);
+      if (d <= bestD) {
+        bestD = d;
+        best = s;
+      }
+    }
+    return best;
+  }
+
   /// Where a sample is on the map.
   LatLng positionOf(ProfileSample sample) => fromUtm(grid.meta.zone, sample.x, sample.y);
 }

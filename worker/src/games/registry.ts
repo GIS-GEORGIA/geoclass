@@ -1,4 +1,5 @@
 import { aerial } from './aerial';
+import { profile } from './profile';
 import { travel } from './travel';
 import type { GameModule } from './types';
 
@@ -18,4 +19,4 @@ export function moduleIds(): string[] {
   return [...modules.keys()];
 }
 
-for (const module of [travel, aerial]) registerGame(module);
+for (const module of [travel, aerial, profile]) registerGame(module);

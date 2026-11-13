@@ -1635,6 +1635,119 @@ describe('schema 0012 and backup version 3', () => {
   });
 });
 
+describe('terrain profile game', () => {
+  const profile = {
+    area: { id: 'kazbegi', version: 1 },
+    line: [
+      [42.70, 44.50],
+      [42.66, 44.56],
+      [42.66, 44.64],
+    ],
+    length: 13300,
+    questions: [
+      { kind: 'max', answer: 4598, tolerance: 50 },
+      { kind: 'min', answer: 1660 },
+      { kind: 'length', answer: 13300 },
+      { kind: 'steepest', answer: 0 },
+      { kind: 'where_max', answer: 0 },
+    ],
+  };
+
+  async function game(over: Record<string, unknown> = {}) {
+    return call('POST', 'sessions', { name: 'Profile', game: 'profile', profile: { ...profile, ...over } });
+  }
+
+  const play = (token: string, round: number, kind: string, value: unknown, over: Record<string, unknown> = {}) =>
+    student('submit', {
+      token,
+      submissionId: id('sub'),
+      participantId: 'profile-player-01',
+      answer: { kind, value },
+      lat: 42.7,
+      lon: 44.5,
+      round,
+      ...over,
+    });
+
+  it('stores the line and questions, with the default tolerance filled in', async () => {
+    const res = await game();
+    expect(res.status).toBe(201);
+    const { session } = (await res.json()) as { session: { settings: { questions: { tolerance?: number }[] } } };
+    expect(session.settings.questions[1].tolerance).toBe(50);
+    expect(session.settings.questions[2]).toEqual({ kind: 'length', answer: 13300 });
+  });
+
+  it('refuses settings it cannot score', async () => {
+    const bad = [
+      { area: { id: '../x', version: 1 } },
+      { line: [[42.7, 44.5]] },
+      { line: Array.from({ length: 11 }, (_, i) => [42.7, 44.5 + i / 100]) },
+      { line: [[95, 44.5], [42.6, 44.6]] },
+      { length: 0 },
+      { questions: [] },
+      { questions: [{ kind: 'nope', answer: 1 }] },
+      { questions: [{ kind: 'max', answer: 4598, tolerance: 1 }] },
+      { questions: [{ kind: 'length', answer: 9000 }] },
+      { questions: [{ kind: 'steepest', answer: 2 }] },
+      { questions: [{ kind: 'steepest', answer: 0.5 }] },
+      { line: [[42.7, 44.5], [42.6, 44.6]], questions: [{ kind: 'steepest', answer: 0 }] },
+      { questions: [{ kind: 'where_max', answer: 20000 }] },
+    ];
+    for (const over of bad) expect((await game(over)).status, JSON.stringify(over)).toBe(400);
+  });
+
+  it('students get the line and the kinds of question, not the answers', async () => {
+    const { token } = (await (await game()).json()) as { token: string };
+    const joined = (await (await student('join', { token })).json()) as { game: string; settings: Record<string, unknown> };
+    expect(joined.game).toBe('profile');
+    expect(joined.settings).toEqual({
+      area: profile.area,
+      line: profile.line,
+      questions: [{ kind: 'max', tolerance: 50 }, { kind: 'min', tolerance: 50 }, { kind: 'length' }, { kind: 'steepest' }, { kind: 'where_max' }],
+    });
+    expect(JSON.stringify(joined)).not.toContain('4598');
+  });
+
+  it('scores each kind on the server, gives the right answer, and keeps the first try', async () => {
+    const { session, token } = (await (await game()).json()) as { session: { id: string }; token: string };
+    expect(await (await play(token, 0, 'max', 4620)).json()).toEqual({ ok: true, duplicate: false, score: 100, kind: 'max', answer: 4598 });
+    expect(await (await play(token, 0, 'max', 4598)).json()).toMatchObject({ duplicate: true, score: 100 });
+    expect(await (await play(token, 1, 'min', 1760)).json()).toMatchObject({ score: 50, answer: 1660 }); // 100 m off, tolerance 50
+    expect(await (await play(token, 2, 'length', 9000)).json()).toMatchObject({ score: 0 }); // 32 % short: nothing
+    expect(await (await play(token, 3, 'steepest', 1)).json()).toMatchObject({ score: 0, answer: 0 });
+    expect(await (await play(token, 4, 'where_max', 50)).json()).toMatchObject({ score: 100 });
+    const rows = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { responses: { round: number; score: number; answer: unknown }[] };
+    expect(rows.responses.map((r) => [r.round, r.score])).toEqual([
+      [0, 100],
+      [1, 50],
+      [2, 0],
+      [3, 0],
+      [4, 100],
+    ]);
+    expect(rows.responses[0].answer).toEqual({ kind: 'max', value: 4620 });
+    expect(await (await play(token, 2, 'length', 10000, { participantId: 'profile-player-02' })).json()).toMatchObject({ score: 26 }); // 25 % short
+  });
+
+  it('refuses an answer of the wrong kind, a bad value or a round with no question', async () => {
+    const { token } = (await (await game()).json()) as { token: string };
+    expect((await play(token, 0, 'min', 4598)).status).toBe(400);
+    expect((await play(token, 0, 'max', 'high')).status).toBe(400);
+    expect((await play(token, 3, 'steepest', 0.5)).status).toBe(400);
+    expect((await play(token, 5, 'max', 4598)).status).toBe(400);
+  });
+
+  it('survives backup and restore, scored again', async () => {
+    const { session, token } = (await (await game()).json()) as { session: { id: string }; token: string };
+    await play(token, 3, 'steepest', 1);
+    const file = (await (await call('GET', `backup?session=${session.id}`)).json()) as { responses: { score: number }[] };
+    file.responses[0].score = 100;
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    const rows = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { responses: { score: number }[] };
+    expect(rows.responses[0].score).toBe(0);
+  });
+});
+
 describe('game registry', () => {
   // A game that exists only in this test: registering this one module is all it takes.
   type Quiz = { questions: { q: string; right: string }[] };

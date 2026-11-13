@@ -17,6 +17,9 @@ class ProfileChart extends StatelessWidget {
   final ValueChanged<ProfileSample?>? onCursor;
   final double height;
 
+  /// Mark and label the lowest and highest points. A game that asks for them turns this off.
+  final bool marks;
+
   const ProfileChart({
     super.key,
     required this.profile,
@@ -24,6 +27,7 @@ class ProfileChart extends StatelessWidget {
     this.cursor,
     this.onCursor,
     this.height = 180,
+    this.marks = true,
   });
 
   @override
@@ -41,10 +45,11 @@ class ProfileChart extends StatelessWidget {
       height: height,
       child: LayoutBuilder(
         builder: (context, box) {
-          final painter = ProfilePainter(profile, s, style, cursor);
+          final painter = ProfilePainter(profile, s, style, cursor, marks: marks);
           void point(Offset at) => onCursor?.call(painter.sampleAt(at, box.biggest));
           return Semantics(
-            label: summaryLine(profile, s),
+            // Without the marks the lowest and highest are what the student is asked for: the label leaves them out.
+            label: marks ? summaryLine(profile, s) : '${s['profile_length']}: ${profileDistance(profile.length, s)}',
             child: MouseRegion(
               onHover: (e) => point(e.localPosition),
               onExit: (_) => onCursor?.call(null),
@@ -106,7 +111,9 @@ class ProfilePainter extends CustomPainter {
   final ProfileStyle style;
   final ProfileSample? cursor;
 
-  ProfilePainter(this.profile, this.s, this.style, this.cursor);
+  final bool marks;
+
+  ProfilePainter(this.profile, this.s, this.style, this.cursor, {this.marks = true});
 
   static const left = 48.0, right = 12.0, top = 14.0, bottom = 22.0;
 
@@ -216,7 +223,8 @@ class ProfilePainter extends CustomPainter {
 
     // Lowest and highest.
     final markPaint = Paint()..color = style.mark;
-    for (final (sample, above) in [(profile.highest, true), (profile.lowest, false)]) {
+    for (final (sample, above)
+        in marks ? [(profile.highest, true), (profile.lowest, false)] : const <(ProfileSample?, bool)>[]) {
       if (sample == null) continue;
       final at = Offset(xOf(sample.distance), yOf(sample.height!));
       canvas.drawCircle(at, 4, markPaint);
@@ -241,7 +249,11 @@ class ProfilePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(ProfilePainter old) =>
-      !identical(old.profile, profile) || old.cursor != cursor || old.style.line != style.line || old.s.lang != s.lang;
+      !identical(old.profile, profile) ||
+      old.cursor != cursor ||
+      old.marks != marks ||
+      old.style.line != style.line ||
+      old.s.lang != s.lang;
 }
 
 /// The profile's numbers under the chart: length, lowest, highest, climb, drop, the steepest section, and
