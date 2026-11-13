@@ -134,6 +134,7 @@ class _ProfilePreviewState extends State<ProfilePreview> {
           child: MapWorkspace(
             grid: widget.grid,
             s: s,
+            slope: false,
             showHeight: !_drawing,
             onTap: _tap,
             layers: [

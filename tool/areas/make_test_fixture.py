@@ -11,6 +11,7 @@ Files:
     dem.u16      the piece, raw UInt16 little-endian (not compressed: the client gets it decoded)
     expected.json  heights at points (GDAL bilinear) and the UTM position of WGS84 points (GDAL/PROJ)
     hillshade.u8   gdaldem hillshade of the piece (defaults: Horn, azimuth 315°, altitude 45°), one byte per cell
+    slope.f32      gdaldem slope of the piece (defaults: Horn, degrees), float32 little-endian, -9999 for none
     profile.json   a three-vertex line across the piece (through the empty cell) and its profile: GDAL bilinear
                    heights every half cell, geodesic distances (PROJ's geod), and the summary numbers
 """
@@ -108,9 +109,15 @@ def main():
     shaded = gdal.DEMProcessing('', ds, 'hillshade', format='MEM')
     shade = shaded.GetRasterBand(1).ReadAsArray().astype(np.uint8)
 
+    # gdaldem's defaults again: Horn, degrees; edge cells and cells next to the empty one are -9999.
+    sloped = gdal.DEMProcessing('', ds, 'slope', format='MEM')
+    slope = sloped.GetRasterBand(1).ReadAsArray().astype('<f4')
+
     profile = make_profile(bounds, to_utm, osr.CoordinateTransformation(utm, wgs), gdal_bilinear)
 
     os.makedirs(OUT, exist_ok=True)
+    with open(os.path.join(OUT, 'slope.f32'), 'wb') as f:
+        f.write(slope.tobytes())
     with open(os.path.join(OUT, 'profile.json'), 'w', encoding='utf-8') as f:
         json.dump(profile, f, indent=1)
         f.write('\n')

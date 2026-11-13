@@ -12,6 +12,7 @@ import '../l10n.dart';
 import 'dem_loader.dart';
 import 'elevation.dart';
 import 'hillshade.dart';
+import 'slope.dart';
 
 /// The map every terrain game works on: the base map, the area's shaded relief, its outline, the height
 /// where the map is touched, and the Copernicus notice. Games add their own layers on top ([layers]) and
@@ -34,6 +35,10 @@ class MapWorkspace extends StatefulWidget {
 
   final MapController? controller;
 
+  /// The slope classes as a layer: null leaves them out of the layer panel (a game asking about slope);
+  /// true or false offers them, shown or not. A change from the game (after an answer, say) takes effect.
+  final bool? slope;
+
   const MapWorkspace({
     super.key,
     required this.grid,
@@ -43,6 +48,7 @@ class MapWorkspace extends StatefulWidget {
     this.showHeight = true,
     this.panelChildren = const [],
     this.controller,
+    this.slope,
   });
 
   @override
@@ -59,7 +65,8 @@ class _MapWorkspaceState extends State<MapWorkspace> {
   LatLng? _picked;
   bool _ready = false, _moved = false;
   Size? _size;
-  ReliefImage? _shade;
+  GridImage? _shade, _slopeImage;
+  late bool _slope = widget.slope ?? false;
   late List<LatLng> _outline;
 
   S get s => widget.s;
@@ -74,6 +81,7 @@ class _MapWorkspaceState extends State<MapWorkspace> {
   void didUpdateWidget(MapWorkspace old) {
     super.didUpdateWidget(old);
     if (!identical(old.grid, widget.grid)) _prepare();
+    if (old.slope != widget.slope) _slope = widget.slope ?? false;
   }
 
   void _prepare() {
@@ -81,7 +89,9 @@ class _MapWorkspaceState extends State<MapWorkspace> {
     _picked = null;
     _moved = false;
     if (_ready) WidgetsBinding.instance.addPostFrameCallback((_) => mounted ? _fit() : null);
-    _shade = ReliefImage(widget.grid);
+    _shade = GridImage(widget.grid, 'relief', () => reliefPixels(widget.grid));
+    final grid = widget.grid;
+    _slopeImage = GridImage(grid, 'slope', () => slopePixels(slopeOf(grid)));
   }
 
   LatLngBounds get _bounds => LatLngBounds.fromPoints(_outline);
@@ -165,7 +175,7 @@ class _MapWorkspaceState extends State<MapWorkspace> {
     AreaMeta m,
     LatLng? picked,
     double? pickedHeight,
-    ReliefImage? shade,
+    GridImage? shade,
     Color colour,
   ) {
     return Stack(
@@ -201,6 +211,19 @@ class _MapWorkspaceState extends State<MapWorkspace> {
                     bottomRightCorner: _outline[1],
                     imageProvider: shade,
                     opacity: _reliefOpacity,
+                    gaplessPlayback: true,
+                  ),
+                ],
+              ),
+            if (widget.slope != null && _slope && _slopeImage != null)
+              OverlayImageLayer(
+                overlayImages: [
+                  RotatedOverlayImage(
+                    topLeftCorner: _outline[3],
+                    bottomLeftCorner: _outline[0],
+                    bottomRightCorner: _outline[1],
+                    imageProvider: _slopeImage!,
+                    opacity: 0.5,
                     gaplessPlayback: true,
                   ),
                 ],
@@ -299,6 +322,17 @@ class _MapWorkspaceState extends State<MapWorkspace> {
                       Text(s['opacity'], style: Theme.of(context).textTheme.bodySmall),
                       Slider(value: _reliefOpacity, min: 0.1, onChanged: (v) => setState(() => _reliefOpacity = v)),
                     ],
+                    if (widget.slope != null) ...[
+                      SwitchListTile(
+                        key: const Key('terrain_slope_switch'),
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        value: _slope,
+                        title: Text(s['terrain_slope']),
+                        onChanged: (v) => setState(() => _slope = v),
+                      ),
+                      if (_slope) SlopeLegend(s: s),
+                    ],
                     ...widget.panelChildren,
                   ],
                 ),
@@ -349,30 +383,63 @@ Uint8List reliefPixels(ElevationGrid grid) {
   return rgba;
 }
 
-/// The relief handed to the map as an image straight from its pixels. Encoding a PNG first took
-/// seconds in the browser for the larger areas; this takes a fraction of that.
-class ReliefImage extends ImageProvider<ReliefImage> {
+/// A picture of the whole grid, one pixel per cell, handed to the map straight from its pixels: the relief
+/// or the slope classes. Encoding a PNG first took seconds in the browser for the larger areas; this takes
+/// a fraction of that. The pixels are made only when the map first shows the picture.
+class GridImage extends ImageProvider<GridImage> {
   final ElevationGrid grid;
-  const ReliefImage(this.grid);
+  final String kind;
+  final Uint8List Function() pixels;
+  const GridImage(this.grid, this.kind, this.pixels);
 
   @override
-  Future<ReliefImage> obtainKey(ImageConfiguration configuration) => SynchronousFuture(this);
+  Future<GridImage> obtainKey(ImageConfiguration configuration) => SynchronousFuture(this);
 
   @override
-  ImageStreamCompleter loadImage(ReliefImage key, ImageDecoderCallback decode) =>
+  ImageStreamCompleter loadImage(GridImage key, ImageDecoderCallback decode) =>
       OneFrameImageStreamCompleter(_decode().then((image) => ImageInfo(image: image)));
 
   Future<ui.Image> _decode() {
     final done = Completer<ui.Image>();
-    ui.decodeImageFromPixels(reliefPixels(grid), grid.width, grid.height, ui.PixelFormat.rgba8888, done.complete);
+    ui.decodeImageFromPixels(pixels(), grid.width, grid.height, ui.PixelFormat.rgba8888, done.complete);
     return done.future;
   }
 
   @override
-  bool operator ==(Object other) => other is ReliefImage && identical(other.grid, grid);
+  bool operator ==(Object other) => other is GridImage && identical(other.grid, grid) && other.kind == kind;
 
   @override
-  int get hashCode => identityHashCode(grid);
+  int get hashCode => Object.hash(identityHashCode(grid), kind);
+}
+
+/// What the slope colours mean.
+class SlopeLegend extends StatelessWidget {
+  final S s;
+  const SlopeLegend({super.key, required this.s});
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      for (var k = 0; k < slopeClasses.length; k++)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 1),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(width: 14, height: 14, color: Color(slopeColours[k]).withValues(alpha: 0.7)),
+              const SizedBox(width: 6),
+              Text(
+                k + 1 < slopeClasses.length
+                    ? s.f('terrain_slope_class', [slopeClasses[k], slopeClasses[k + 1]])
+                    : s.f('terrain_slope_over', [slopeClasses[k]]),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+    ],
+  );
 }
 
 /// Loads an area and shows it in a [MapWorkspace], with a spinner meanwhile and a retry on failure.

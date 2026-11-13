@@ -142,6 +142,33 @@ void main() {
     expect(find.text('loaded 40'), findsOneWidget);
   });
 
+  testWidgets('the slope layer is offered only when the game allows it', (tester) async {
+    mockTileCache(tester);
+    Future<void> openLayers(bool? slope) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MapWorkspace(key: ValueKey(slope), grid: grid, s: s, slope: slope),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.byTooltip(s['layers']));
+      await tester.pump();
+    }
+
+    await openLayers(null);
+    expect(find.byKey(const Key('terrain_slope_switch')), findsNothing);
+    await openLayers(false);
+    expect(find.byKey(const Key('terrain_slope_switch')), findsOneWidget);
+    expect(find.byType(SlopeLegend), findsNothing);
+    await tester.tap(find.byKey(const Key('terrain_slope_switch')));
+    await tester.pump();
+    expect(find.byType(SlopeLegend), findsOneWidget);
+    expect(find.text(s.f('terrain_slope_over', [30])), findsOneWidget);
+    expect(find.byType(OverlayImageLayer), findsNWidgets(2)); // relief and slope
+  });
+
   test('the areas page has its own address', () {
     expect(isAreasRoute('/areas'), isTrue);
     expect(isAreasRoute('/#/areas/'), isTrue);

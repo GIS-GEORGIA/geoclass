@@ -9,6 +9,7 @@ import 'package:geoclass/terrain/dem_loader.dart';
 import 'package:geoclass/terrain/elevation.dart';
 import 'package:geoclass/terrain/hillshade.dart';
 import 'package:geoclass/terrain/profile.dart';
+import 'package:geoclass/terrain/slope.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
@@ -204,6 +205,51 @@ void main() {
       expect(off.ascent, 0);
       expect(() => TerrainProfile.along(grid, [line.first]), throwsArgumentError);
       expect(() => TerrainProfile.along(grid, const [LatLng(35, 30), LatLng(50, 60)]), throwsArgumentError);
+    });
+  });
+
+  group('slope', () {
+    final raw = File('$dir/slope.f32').readAsBytesSync();
+    final gdal = Float32List.view(Uint8List.fromList(raw).buffer);
+
+    test('is the same as gdaldem slope, cell for cell', () {
+      final ours = slope(grid);
+      expect(ours.length, gdal.length);
+      var worst = 0.0, empty = 0;
+      for (var i = 0; i < ours.length; i++) {
+        final none = gdal[i] == -9999;
+        expect(ours[i].isNaN, none, reason: 'cell $i: ours ${ours[i]}, gdaldem ${gdal[i]}');
+        if (none) {
+          empty++;
+        } else {
+          worst = math.max(worst, (ours[i] - gdal[i]).abs());
+        }
+      }
+      expect(worst, lessThan(1e-3)); // degrees
+      expect(empty, 145); // the edge, and the 9 cells around the empty one
+    });
+
+    test('a plane of known grade has that slope everywhere', () {
+      // Heights rising 1 m per 30 m cell to the east and 1 m to the north: tan(slope) = sqrt(2) / 30.
+      final m = AreaMeta.fromJson(metaJson);
+      final b = ByteData(m.width * m.height * 2);
+      for (var r = 0; r < m.height; r++) {
+        for (var c = 0; c < m.width; c++) {
+          b.setUint16((r * m.width + c) * 2, 10000 + 10 * c + 10 * (m.height - r), Endian.little);
+        }
+      }
+      final plane = slope(ElevationGrid.fromBytes(m, b.buffer.asUint8List()));
+      final want = math.atan(math.sqrt(2) / 30) * 180 / math.pi;
+      expect(plane[5 * m.width + 5], closeTo(want, 1e-4));
+      expect(plane[20 * m.width + 30], closeTo(want, 1e-4));
+    });
+
+    test('classes and their colours', () {
+      expect(<double>[double.nan, 0, 4.99, 5, 14.9, 15, 29.9, 30, 70].map(slopeClass), [-1, 0, 0, 1, 1, 2, 2, 3, 3]);
+      final rgba = slopePixels(Float32List.fromList([double.nan, 2, 40]));
+      expect(rgba.sublist(0, 4), [0, 0, 0, 0]);
+      expect(rgba.sublist(4, 8), [0x4c, 0xaf, 0x50, 255]);
+      expect(rgba.sublist(8, 12), [0xd3, 0x2f, 0x2f, 255]);
     });
   });
 

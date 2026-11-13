@@ -1748,6 +1748,67 @@ describe('terrain profile game', () => {
   });
 });
 
+describe('slope game', () => {
+  const answer = '0110' + '0110' + '0000' + '0001';
+  const slope = { area: { id: 'kazbegi', version: 1 }, box: { row: 100, col: 120, cells: 10, n: 4 }, threshold: 15, answer };
+
+  const game = (over: Record<string, unknown> = {}) => call('POST', 'sessions', { name: 'Slope', game: 'slope', slope: { ...slope, ...over } });
+  const play = (token: string, marks: unknown, over: Record<string, unknown> = {}) =>
+    student('submit', { token, submissionId: id('sub'), participantId: 'slope-player-01', answer: { marks }, lat: 42.7, lon: 44.5, round: 0, ...over });
+
+  it('refuses settings it cannot score', async () => {
+    const bad = [
+      { box: { row: 0, col: 120, cells: 10, n: 4 } },
+      { box: { row: 100, col: 120, cells: 2, n: 4 } },
+      { box: { row: 100, col: 120, cells: 10, n: 13 } },
+      { threshold: 20 },
+      { answer: '0'.repeat(16) },
+      { answer: '01' },
+      { answer: 'x'.repeat(16) },
+      { area: { id: 'Kazbegi', version: 1 } },
+    ];
+    for (const over of bad) expect((await game(over)).status, JSON.stringify(over)).toBe(400);
+  });
+
+  it('students get the box and the threshold, not the right squares', async () => {
+    const res = await game();
+    expect(res.status).toBe(201);
+    const { token } = (await res.json()) as { token: string };
+    const joined = (await (await student('join', { token })).json()) as { settings: unknown };
+    expect(joined.settings).toEqual({ area: slope.area, box: slope.box, threshold: 15 });
+  });
+
+  it('scores the overlap on the server and keeps the first answer', async () => {
+    const { session, token } = (await (await game()).json()) as { session: { id: string }; token: string };
+    // 4 right of 5 right squares, plus 1 wrong: 4 / 6.
+    const marks = '0110' + '0100' + '0000' + '0011';
+    expect(await (await play(token, marks)).json()).toEqual({ ok: true, duplicate: false, score: 67, answer });
+    expect(await (await play(token, answer)).json()).toMatchObject({ duplicate: true, score: 67 });
+    expect(await (await play(token, answer, { participantId: 'slope-player-02' })).json()).toMatchObject({ score: 100 });
+    expect(await (await play(token, '0'.repeat(16), { participantId: 'slope-player-03' })).json()).toMatchObject({ score: 0 });
+    const rows = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { responses: { score: number; answer: unknown }[] };
+    expect(rows.responses.map((r) => r.score).sort()).toEqual([0, 100, 67]);
+  });
+
+  it('refuses a marking of the wrong size or another round', async () => {
+    const { token } = (await (await game()).json()) as { token: string };
+    expect((await play(token, '01')).status).toBe(400);
+    expect((await play(token, '2'.repeat(16))).status).toBe(400);
+    expect((await play(token, answer, { round: 1 })).status).toBe(400);
+  });
+
+  it('survives backup and restore, scored again', async () => {
+    const { session, token } = (await (await game()).json()) as { session: { id: string }; token: string };
+    await play(token, '0'.repeat(16));
+    const file = (await (await call('GET', `backup?session=${session.id}`)).json()) as { responses: { score: number }[] };
+    file.responses[0].score = 100;
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    const rows = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { responses: { score: number }[] };
+    expect(rows.responses[0].score).toBe(0);
+  });
+});
+
 describe('game registry', () => {
   // A game that exists only in this test: registering this one module is all it takes.
   type Quiz = { questions: { q: string; right: string }[] };
