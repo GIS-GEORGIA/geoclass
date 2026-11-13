@@ -10,6 +10,7 @@ import 'package:geoclass/terrain/elevation.dart';
 import 'package:geoclass/terrain/hillshade.dart';
 import 'package:geoclass/terrain/profile.dart';
 import 'package:geoclass/terrain/slope.dart';
+import 'package:geoclass/terrain/viewshed.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
@@ -250,6 +251,72 @@ void main() {
       expect(rgba.sublist(0, 4), [0, 0, 0, 0]);
       expect(rgba.sublist(4, 8), [0x4c, 0xaf, 0x50, 255]);
       expect(rgba.sublist(8, 12), [0xd3, 0x2f, 0x2f, 255]);
+    });
+  });
+
+  group('viewshed', () {
+    final views = jsonDecode(File('$dir/viewshed.json').readAsStringSync()) as List;
+
+    test('is the same as gdal_viewshed, cell for cell, from every observer', () {
+      expect(views, hasLength(5));
+      for (final v in views.cast<Map<String, dynamic>>()) {
+        final ours = viewshed(
+          grid,
+          v['row'] as int,
+          v['col'] as int,
+          observer: (v['height'] as num).toDouble(),
+          curvature: (v['curvature'] as num).toDouble(),
+        )!;
+        final want = v['seen'] as String;
+        var differ = 0, none = 0;
+        for (var i = 0; i < ours.length; i++) {
+          if (ours[i] == viewNone) {
+            none++;
+            continue;
+          }
+          if (ours[i] != int.parse(want[i])) differ++;
+        }
+        expect(none, 1, reason: 'the empty cell');
+        expect(differ, 0, reason: 'observer at ${v['row']}, ${v['col']}');
+      }
+    });
+
+    test('the curvature hides ground the flat earth would show', () {
+      final flat = viewshed(grid, 20, 25, observer: 2, curvature: 0)!;
+      final curved = viewshed(grid, 20, 25, observer: 2, curvature: 50)!;
+      int seen(Uint8List v) => v.where((x) => x == viewSeen).length;
+      expect(seen(curved), lessThan(seen(flat)));
+    });
+
+    test('a flat plain is seen to the edge; a wall hides what is behind it', () {
+      final m = AreaMeta.fromJson(metaJson);
+      Uint8List ground(int Function(int r, int c) step) {
+        final b = ByteData(m.width * m.height * 2);
+        for (var r = 0; r < m.height; r++) {
+          for (var c = 0; c < m.width; c++) {
+            b.setUint16((r * m.width + c) * 2, step(r, c), Endian.little);
+          }
+        }
+        return b.buffer.asUint8List();
+      }
+
+      final plain = ElevationGrid.fromBytes(m, ground((r, c) => 10000));
+      expect(viewshed(plain, 15, 20, observer: 1.7, curvature: 0)!.every((x) => x == viewSeen), isTrue);
+      // A wall 50 m high along column 25; the observer at column 10, 2 m up.
+      final walled = ElevationGrid.fromBytes(m, ground((r, c) => c == 25 ? 10500 : 10000));
+      final v = viewshed(walled, 15, 10, observer: 2, curvature: 0)!;
+      expect(v[15 * m.width + 25], viewSeen); // the wall itself
+      expect(v[15 * m.width + 30], viewHidden);
+      expect(v[15 * m.width + 20], viewSeen);
+      // An observer on an empty cell has no height to look from.
+      expect(viewshed(grid, 12, 20, observer: 2), isNull);
+      expect(viewshed(grid, -1, 0, observer: 2), isNull);
+    });
+
+    test('seen ground is green on the map, the rest clear', () {
+      final rgba = viewshedPixels(Uint8List.fromList([viewSeen, viewHidden, viewNone]));
+      expect(rgba.sublist(0, 4), [0x00, 0xc8, 0x53, 255]);
+      expect(rgba.sublist(4, 12), List.filled(8, 0));
     });
   });
 

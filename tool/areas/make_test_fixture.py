@@ -11,6 +11,8 @@ Files:
     dem.u16      the piece, raw UInt16 little-endian (not compressed: the client gets it decoded)
     expected.json  heights at points (GDAL bilinear) and the UTM position of WGS84 points (GDAL/PROJ)
     hillshade.u8   gdaldem hillshade of the piece (defaults: Horn, azimuth 315°, altitude 45°), one byte per cell
+    viewshed.json  gdal_viewshed of the piece from a few observers (Edge mode, as the CLI runs it): one '1' (seen)
+                   or '0' per cell, rows north to south
     slope.f32      gdaldem slope of the piece (defaults: Horn, degrees), float32 little-endian, -9999 for none
     profile.json   a three-vertex line across the piece (through the empty cell) and its profile: GDAL bilinear
                    heights every half cell, geodesic distances (PROJ's geod), and the summary numbers
@@ -114,10 +116,14 @@ def main():
     slope = sloped.GetRasterBand(1).ReadAsArray().astype('<f4')
 
     profile = make_profile(bounds, to_utm, osr.CoordinateTransformation(utm, wgs), gdal_bilinear)
+    views = make_viewsheds(piece, bounds, utm)
 
     os.makedirs(OUT, exist_ok=True)
     with open(os.path.join(OUT, 'slope.f32'), 'wb') as f:
         f.write(slope.tobytes())
+    with open(os.path.join(OUT, 'viewshed.json'), 'w', encoding='utf-8') as f:
+        json.dump(views, f, indent=1)
+        f.write('\n')
     with open(os.path.join(OUT, 'profile.json'), 'w', encoding='utf-8') as f:
         json.dump(profile, f, indent=1)
         f.write('\n')
@@ -137,6 +143,33 @@ def main():
 # Line vertices as (row, column) of the piece, in cells from its top-left corner. The middle segment crosses
 # the empty cell, so the profile has a gap.
 LINE = [(3.5, 3.5), (25.5, 14.5), (2.5, 25.5), (20.5, 37.5)]
+
+
+# Observers: (row, col, height above ground, curvature coefficient). The CLI's -cc default, none, and a
+# large one so that the curvature arithmetic shows in so small a piece; corners and edges reach every pass.
+VIEWS = [(15, 10, 10.0, 0.85714), (5, 33, 1.7, 0.85714), (0, 0, 30.0, 0.0), (29, 39, 1.7, 0.0), (20, 25, 2.0, 50.0)]
+
+
+def make_viewsheds(piece, bounds, utm):
+    """gdal_viewshed from each of VIEWS, on the heights in double precision as the app reads them.
+
+    GDAL reads the empty cell as a height; it is given -9999 there, far below the ground, as the app does.
+    """
+    heights = np.where(piece == ba.NODATA, -9999.0, piece.astype(np.float64) * ba.SCALE)
+    ds = gdal.GetDriverByName('MEM').Create('', W, H, 1, gdal.GDT_Float64)
+    ds.SetGeoTransform((bounds[0], ba.CELL, 0, bounds[3], 0, -ba.CELL))
+    ds.SetProjection(utm.ExportToWkt())
+    ds.GetRasterBand(1).WriteArray(heights)
+    out = []
+    for row, col, height, cc in VIEWS:
+        x = bounds[0] + (col + 0.5) * ba.CELL
+        y = bounds[3] - (row + 0.5) * ba.CELL
+        seen = gdal.ViewshedGenerate(
+            ds.GetRasterBand(1), 'MEM', '', [], x, y, height, 0.0, 1, 0, 0, -1, cc, gdal.GVM_Edge, 0.0
+        )
+        cells = seen.GetRasterBand(1).ReadAsArray()
+        out.append(dict(row=row, col=col, height=height, curvature=cc, seen=''.join(str(int(v)) for v in cells.ravel())))
+    return out
 
 
 def make_profile(bounds, to_utm, from_utm, height_at):

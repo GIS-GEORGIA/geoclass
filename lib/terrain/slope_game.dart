@@ -319,6 +319,7 @@ class _SlopeSetupPageState extends State<SlopeSetupPage> {
       s: s,
       showHeight: false,
       slope: false,
+      doubleTapZoom: false,
       onTap: (p, _) => setState(() {
         _centre = p;
         _error = null;

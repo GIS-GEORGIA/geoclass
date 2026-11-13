@@ -178,6 +178,7 @@ class _SlopePlayState extends State<SlopePlay> {
       grid: grid,
       s: s,
       showHeight: false,
+      doubleTapZoom: false,
       // The slope classes would give the answer away: offered only once it is sent.
       slope: _sent && answer != null ? true : null,
       onTap: (p, _) {

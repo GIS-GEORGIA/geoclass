@@ -169,6 +169,45 @@ void main() {
     expect(find.byType(OverlayImageLayer), findsNWidgets(2)); // relief and slope
   });
 
+  testWidgets('quick touches one after another all count when double-tap zoom is off', (tester) async {
+    mockTileCache(tester);
+    Future<(int, double)> twoQuickTouches(bool doubleTapZoom) async {
+      var taps = 0;
+      final controller = MapController();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MapWorkspace(
+              key: ValueKey(doubleTapZoom),
+              grid: grid,
+              s: s,
+              controller: controller,
+              showHeight: false,
+              doubleTapZoom: doubleTapZoom,
+              onTap: (_, _) => taps++,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final zoom = controller.camera.zoom;
+      final centre = tester.getCenter(find.byType(MapWorkspace));
+      await tester.tapAt(centre);
+      await tester.pump(const Duration(milliseconds: 80));
+      await tester.tapAt(centre + const Offset(12, 0));
+      await tester.pumpAndSettle();
+      return (taps, controller.camera.zoom - zoom);
+    }
+
+    final (marked, zoomed) = await twoQuickTouches(false);
+    expect(marked, 2);
+    expect(zoomed, 0);
+    // With it on, the same two touches zoom the map and mark nothing: what students ran into.
+    final (markedOn, zoomedOn) = await twoQuickTouches(true);
+    expect(markedOn, 0);
+    expect(zoomedOn, greaterThan(0));
+  });
+
   test('the areas page has its own address', () {
     expect(isAreasRoute('/areas'), isTrue);
     expect(isAreasRoute('/#/areas/'), isTrue);

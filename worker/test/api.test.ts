@@ -1809,6 +1809,84 @@ describe('slope game', () => {
   });
 });
 
+describe('viewshed game', () => {
+  const area = { id: 'kazbegi', version: 1 };
+  const targets = [
+    { row: 10, col: 10 },
+    { row: 20, col: 30 },
+    { row: 40, col: 5 },
+    { row: 7, col: 70 },
+  ];
+  const byTargets = { area, observer: { row: 50, col: 50 }, height: 10, kind: 'targets', targets, answer: '1010' };
+  const bySquares = { area, observer: { row: 50, col: 50 }, height: 1.7, kind: 'squares', box: { row: 0, col: 0, cells: 10, n: 4 }, answer: '0110' + '0110' + '0000' + '0001' };
+
+  const game = (base: Record<string, unknown>, over: Record<string, unknown> = {}) =>
+    call('POST', 'sessions', { name: 'View', game: 'viewshed', viewshed: { ...base, ...over } });
+  const play = (token: string, seen: unknown, over: Record<string, unknown> = {}) =>
+    student('submit', { token, submissionId: id('sub'), participantId: 'view-player-01', answer: { seen }, lat: 42.7, lon: 44.5, round: 0, ...over });
+
+  it('refuses settings it cannot score', async () => {
+    const bad: [Record<string, unknown>, Record<string, unknown>][] = [
+      [byTargets, { height: 5 }],
+      [byTargets, { kind: 'lines' }],
+      [byTargets, { targets: targets.slice(0, 2), answer: '10' }],
+      [byTargets, { targets: [...targets, targets[0]], answer: '10101' }],
+      [byTargets, { targets: [...targets.slice(0, 3), { row: 50, col: 50 }] }],
+      [byTargets, { targets: [{ row: -1, col: 0 }, ...targets.slice(1)] }],
+      [byTargets, { answer: '101' }],
+      [byTargets, { observer: { row: 1.5, col: 3 } }],
+      [bySquares, { answer: '0'.repeat(16) }],
+      [bySquares, { box: { row: 0, col: 0, cells: 2, n: 4 } }],
+      [bySquares, { box: { row: 0, col: 0, cells: 10, n: 13 } }],
+      [bySquares, { area: { id: 'Kazbegi', version: 1 } }],
+    ];
+    for (const [base, over] of bad) expect((await game(base, over)).status, JSON.stringify(over)).toBe(400);
+  });
+
+  it('students get the observer and the targets or the box, not what is seen', async () => {
+    for (const [base, extra] of [
+      [byTargets, { targets }],
+      [bySquares, { box: bySquares.box }],
+    ] as const) {
+      const { token } = (await (await game(base)).json()) as { token: string };
+      const joined = (await (await student('join', { token })).json()) as { settings: unknown };
+      expect(joined.settings).toEqual({ area, observer: base.observer, height: base.height, kind: base.kind, ...extra });
+    }
+  });
+
+  it('scores the targets judged right, and the first answer counts', async () => {
+    const { session, token } = (await (await game(byTargets)).json()) as { session: { id: string }; token: string };
+    expect(await (await play(token, '1000')).json()).toEqual({ ok: true, duplicate: false, score: 75, answer: '1010' });
+    expect(await (await play(token, '1010')).json()).toMatchObject({ duplicate: true, score: 75 });
+    expect(await (await play(token, '0101', { participantId: 'view-player-02' })).json()).toMatchObject({ score: 0 });
+    const rows = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { responses: { score: number }[] };
+    expect(rows.responses.map((r) => r.score).sort()).toEqual([0, 75]);
+  });
+
+  it('scores the squares by their overlap', async () => {
+    const { token } = (await (await game(bySquares)).json()) as { token: string };
+    expect(await (await play(token, '0110' + '0100' + '0000' + '0011')).json()).toMatchObject({ score: 67 });
+  });
+
+  it('refuses an answer of the wrong size or another round', async () => {
+    const { token } = (await (await game(byTargets)).json()) as { token: string };
+    expect((await play(token, '10')).status).toBe(400);
+    expect((await play(token, '1x10')).status).toBe(400);
+    expect((await play(token, '1010', { round: 1 })).status).toBe(400);
+  });
+
+  it('survives backup and restore, scored again', async () => {
+    const { session, token } = (await (await game(bySquares)).json()) as { session: { id: string }; token: string };
+    await play(token, '0'.repeat(16));
+    const file = (await (await call('GET', `backup?session=${session.id}`)).json()) as { responses: { score: number }[] };
+    file.responses[0].score = 100;
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    const rows = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { responses: { score: number }[] };
+    expect(rows.responses[0].score).toBe(0);
+  });
+});
+
 describe('game registry', () => {
   // A game that exists only in this test: registering this one module is all it takes.
   type Quiz = { questions: { q: string; right: string }[] };

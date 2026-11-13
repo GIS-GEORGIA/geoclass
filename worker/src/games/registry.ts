@@ -1,6 +1,7 @@
 import { aerial } from './aerial';
 import { profile } from './profile';
 import { slope } from './slope';
+import { viewshed } from './viewshed';
 import { travel } from './travel';
 import type { GameModule } from './types';
 
@@ -20,4 +21,4 @@ export function moduleIds(): string[] {
   return [...modules.keys()];
 }
 
-for (const module of [travel, aerial, profile, slope]) registerGame(module);
+for (const module of [travel, aerial, profile, slope, viewshed]) registerGame(module);

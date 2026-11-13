@@ -39,6 +39,10 @@ class MapWorkspace extends StatefulWidget {
   /// true or false offers them, shown or not. A change from the game (after an answer, say) takes effect.
   final bool? slope;
 
+  /// Zoom in on a double touch. Games where students touch squares one after another turn it off: two quick
+  /// touches would zoom the map instead of marking two squares.
+  final bool doubleTapZoom;
+
   const MapWorkspace({
     super.key,
     required this.grid,
@@ -49,6 +53,7 @@ class MapWorkspace extends StatefulWidget {
     this.panelChildren = const [],
     this.controller,
     this.slope,
+    this.doubleTapZoom = true,
   });
 
   @override
@@ -95,6 +100,12 @@ class _MapWorkspaceState extends State<MapWorkspace> {
   }
 
   LatLngBounds get _bounds => LatLngBounds.fromPoints(_outline);
+
+  int get _flags {
+    var flags = InteractiveFlag.all & ~InteractiveFlag.rotate;
+    if (!widget.doubleTapZoom) flags &= ~(InteractiveFlag.doubleTapZoom | InteractiveFlag.doubleTapDragZoom);
+    return flags;
+  }
 
   void _fit() => _map.fitCamera(CameraFit.bounds(bounds: _bounds, padding: const EdgeInsets.all(24)));
 
@@ -197,7 +208,7 @@ class _MapWorkspaceState extends State<MapWorkspace> {
               if (hasGesture) _moved = true;
             },
             onTap: (_, p) => _tap(p),
-            interactionOptions: const InteractionOptions(flags: InteractiveFlag.all & ~InteractiveFlag.rotate),
+            interactionOptions: InteractionOptions(flags: _flags),
           ),
           children: [
             ...baseLayers(_base, _baseOpacity),
@@ -215,19 +226,7 @@ class _MapWorkspaceState extends State<MapWorkspace> {
                   ),
                 ],
               ),
-            if (widget.slope != null && _slope && _slopeImage != null)
-              OverlayImageLayer(
-                overlayImages: [
-                  RotatedOverlayImage(
-                    topLeftCorner: _outline[3],
-                    bottomLeftCorner: _outline[0],
-                    bottomRightCorner: _outline[1],
-                    imageProvider: _slopeImage!,
-                    opacity: 0.5,
-                    gaplessPlayback: true,
-                  ),
-                ],
-              ),
+            if (widget.slope != null && _slope && _slopeImage != null) gridOverlay(_outline, _slopeImage!),
             PolylineLayer(
               polylines: [
                 Polyline(points: [..._outline, _outline.first], color: colour, strokeWidth: 2),
@@ -382,6 +381,21 @@ Uint8List reliefPixels(ElevationGrid grid) {
   }
   return rgba;
 }
+
+/// A picture of the whole grid ([GridImage]) laid on the map over the area's cells: [outline] is the grid's
+/// (ElevationGrid.outline). Games use it for layers of their own, such as what an observer sees.
+Widget gridOverlay(List<LatLng> outline, ImageProvider image, {double opacity = 0.5}) => OverlayImageLayer(
+  overlayImages: [
+    RotatedOverlayImage(
+      topLeftCorner: outline[3],
+      bottomLeftCorner: outline[0],
+      bottomRightCorner: outline[1],
+      imageProvider: image,
+      opacity: opacity,
+      gaplessPlayback: true,
+    ),
+  ],
+);
 
 /// A picture of the whole grid, one pixel per cell, handed to the map straight from its pixels: the relief
 /// or the slope classes. Encoding a PNG first took seconds in the browser for the larger areas; this takes
