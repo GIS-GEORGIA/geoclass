@@ -2262,3 +2262,97 @@ describe('least-cost game', () => {
     expect(rows.responses[0].score).toBe(was);
   });
 });
+
+describe('thematic map game', () => {
+  const units = ['ge_guria', 'ge_adjara', 'ge_imereti', 'ge_kakheti'];
+  const fields = [
+    { name: 'people', kind: 'count', values: [100000, 350000, null, 300000] },
+    { name: 'share', kind: 'rate', values: [1.5, 2, 3, 4.5] },
+  ];
+  const target = { field: 0, normalise: 'area', method: 'quantile', classes: 5, ramp: 'Greens' };
+  const thematic = (over: Record<string, unknown> = {}) => ({ level: 'regions', title: 'People', mode: 'target', units, fields, target, ...over });
+  const game = (over: Record<string, unknown> = {}) => call('POST', 'sessions', { name: 'Map', game: 'thematic', thematic: thematic(over) });
+  const play = (token: string, answer: unknown, participantId = 'map-player-0001') =>
+    student('submit', { token, submissionId: id('sub'), participantId, answer, lat: 42, lon: 43.5, round: 0 });
+
+  it('students get the data, not the target; the score is 25 for each choice that matches it', async () => {
+    const res = await game();
+    expect(res.status).toBe(201);
+    const { token } = (await res.json()) as { token: string };
+    const joined = (await (await student('join', { token })).json()) as { game: string; settings: unknown };
+    expect(joined.game).toBe('thematic');
+    expect(joined.settings).toEqual({ level: 'regions', title: 'People', mode: 'target', units, fields });
+    const half = { field: 0, normalise: 'none', method: 'quantile', classes: 4, ramp: 'Blues' };
+    expect(await (await play(token, half)).json()).toMatchObject({ ok: true, duplicate: false, score: 50, target });
+    // The first answer counts.
+    expect(await (await play(token, target)).json()).toMatchObject({ duplicate: true, score: 50 });
+    expect(await (await play(token, target, 'map-player-0002')).json()).toMatchObject({ score: 100 });
+    const manual = { ...target, method: 'manual', breaks: [1, 2, 3, 4] };
+    expect(await (await play(token, manual, 'map-player-0003')).json()).toMatchObject({ score: 75 });
+  });
+
+  it('free mode: no target, no score', async () => {
+    const { token } = (await (await game({ mode: 'free', target: undefined })).json()) as { token: string };
+    const res = (await (await play(token, { field: 1, normalise: 'none', method: 'jenks', classes: 3, ramp: 'YlOrRd' })).json()) as Record<string, unknown>;
+    expect(res).toMatchObject({ ok: true });
+    expect(res.score ?? null).toBeNull();
+    expect(res.target).toBeUndefined();
+    expect((await game({ mode: 'free' })).status).toBe(400); // a target in free mode
+  });
+
+  it('refuses settings it can’t play', async () => {
+    const bad: Record<string, unknown>[] = [
+      { level: 'villages' },
+      { mode: 'race' },
+      { units: ['ge_guria'] },
+      { units: ['ge_guria', 'ge_guria', 'ge_imereti', 'ge_kakheti'] },
+      { units: ['ge_guria', 'x', 'ge_imereti', 'ge_kakheti'] },
+      { fields: [] },
+      { fields: [{ name: 'p', kind: 'count', values: [1, 2, 3] }] },
+      { fields: [{ name: 'p', kind: 'sum', values: [1, 2, 3, 4] }] },
+      { fields: [{ name: 'p', kind: 'count', values: [null, null, null, null] }] },
+      { fields: [{ name: '', kind: 'count', values: [1, 2, 3, 4] }] },
+      { target: { ...target, field: 2 } },
+      { target: { ...target, classes: 8 } },
+      { target: { ...target, method: 'manual', breaks: [1, 2, 3, 4] } },
+      { target: undefined },
+      { title: 'x'.repeat(81) },
+    ];
+    for (const over of bad) {
+      const res = await game(over);
+      expect(res.status, JSON.stringify(over).slice(0, 80)).toBe(400);
+    }
+  });
+
+  it('refuses answers it can’t score', async () => {
+    const { token } = (await (await game()).json()) as { token: string };
+    for (const answer of [
+      { ...target, field: 2 },
+      { ...target, normalise: 'people' },
+      { ...target, method: 'manual' },
+      { ...target, method: 'manual', breaks: [3, 2, 1, 4] },
+      { ...target, ramp: 'Rainbow' },
+      { ...target, classes: 2 },
+      'x',
+    ]) {
+      expect((await play(token, answer)).status, JSON.stringify(answer)).toBe(400);
+    }
+  });
+
+  it('survives backup and restore, scored again; a broken target is refused', async () => {
+    const { session, token } = (await (await game()).json()) as { session: { id: string }; token: string };
+    await play(token, { ...target, classes: 3 });
+    const file = (await (await call('GET', `backup?session=${session.id}`)).json()) as {
+      sessions: { settings: { target: Record<string, unknown> } }[];
+      responses: { score: number }[];
+    };
+    file.responses[0].score = 100;
+    await call('DELETE', `sessions/${session.id}`);
+    const broken = structuredClone(file);
+    broken.sessions[0].settings.target = { ...target, classes: 9 };
+    expect((await call('POST', 'restore', broken)).status).toBe(400);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    const rows = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { responses: { score: number }[] };
+    expect(rows.responses[0].score).toBe(75);
+  });
+});
