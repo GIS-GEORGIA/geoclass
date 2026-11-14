@@ -30,8 +30,11 @@ export interface GameModule<S extends Record<string, unknown> = Record<string, u
   studentView(settings: S, sessionId: string): Record<string, unknown>;
   /** Only the known fields of an answer, so nothing else a client sends gets stored. Throws HttpError 400 if bad. */
   validateAnswer(raw: unknown, settings: S): Record<string, unknown>;
-  /** Scoring, always on the server, also for answers restored from a backup. Throws HttpError 400 if the round is bad. */
-  score(settings: S, answer: Record<string, unknown>, place: Place, round: unknown): Scored;
+  /**
+   * Scoring, always on the server, also for answers restored from a backup. Throws HttpError 400 if the round is bad.
+   * A game may read its data from the bindings (the least-cost game reads the area's heights from R2).
+   */
+  score(settings: S, answer: Record<string, unknown>, place: Place, round: unknown, env: Env): Scored | Promise<Scored>;
   /** What the student learns after the answer is stored, sent again with every retry. */
   feedback(settings: S, row: StoredAnswer): Record<string, unknown>;
   /** The settings a session restored from a backup keeps. Throws if the file's settings are bad. */

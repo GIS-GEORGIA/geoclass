@@ -20,5 +20,7 @@ export default defineConfig(async () => ({
       },
     }),
   ],
+  // Binary test fixtures shared with the app's tests (imported with ?inline, as base64).
+  assetsInclude: ['**/*.u16'],
   test: { setupFiles: ['./test/setup.ts'] },
 }));

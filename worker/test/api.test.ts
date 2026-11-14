@@ -1,5 +1,6 @@
 import { env, exports } from 'cloudflare:workers';
 import { registerGame } from '../src/games/registry';
+import { routeCost, routeThrough, type Heights } from '../src/games/least_cost';
 import type { GameModule } from '../src/games/types';
 import { HttpError } from '../src/validate';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -2164,5 +2165,100 @@ describe('watershed game', () => {
     expect((await call('POST', 'restore', file)).status).toBe(200);
     const rows = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { responses: { score: number }[] };
     expect(rows.responses[0].score).toBe(50);
+  });
+});
+
+describe('least-cost game', () => {
+  // A 40 × 40 area rising evenly to the south, 3 m every 30 m: every cell costs the same, so the straight line
+  // east from A to B is the best route, and a detour costs more.
+  const W = 40;
+  const steps = new Uint16Array(W * W).map((_, i) => (1000 + 3 * Math.floor(i / W)) * 10);
+  const area = { id: 'route-test', version: 1 };
+  const slope = { kind: 'slope', theta: 15 };
+  const start = { row: 20, col: 5 };
+  const end = { row: 20, col: 35 };
+  beforeEach(async () => {
+    const raw = new Uint8Array(steps.buffer);
+    const gz = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+    await env.AREAS.put('areas/route-test/1/area.json', JSON.stringify({ id: 'route-test', width: W, height: W, cell: 30, grid: { scale: 0.1, nodata: 65535 } }));
+    await env.AREAS.put('areas/route-test/1/dem.u16.gz', gz);
+  });
+  const heights: Heights = { width: W, height: W, cell: 30, z: Float64Array.from(steps, (v) => v * 0.1) };
+  const cost = (corners: { row: number; col: number }[]) =>
+    routeCost(heights, { kind: 'slope', theta: 15 }, routeThrough(corners.map((c) => c.row * W + c.col), W))!;
+
+  const game = (over: Record<string, unknown> = {}) =>
+    call('POST', 'sessions', { name: 'Route', game: 'least-cost', leastCost: { area, model: slope, start, end, steps: '4'.repeat(30), ...over } });
+  const play = (token: string, via: unknown, over: Record<string, unknown> = {}) =>
+    student('submit', { token, submissionId: id('sub'), participantId: 'route-player-01', answer: { via }, lat: 42.6, lon: 44.6, round: 0, ...over });
+
+  it('costs the teacher’s route on the server, from the area’s heights', async () => {
+    const res = await game();
+    expect(res.status).toBe(201);
+    const { session } = (await res.json()) as { session: { settings: Record<string, unknown> } };
+    expect(session.settings.best).toBeCloseTo(cost([start, end]), 9);
+    expect(session.settings).toMatchObject({ area, model: slope, start, end, width: W, height: W });
+  });
+
+  it('refuses routes that aren’t from A to B, and settings it can’t score', async () => {
+    const bad: [Record<string, unknown>, string][] = [
+      [{ steps: '4'.repeat(29) }, 'bad_least_cost'], // stops short of B
+      [{ steps: '4'.repeat(30) + '9' }, 'bad_least_cost'],
+      [{ model: { kind: 'slope', theta: 12 } }, 'bad_least_cost'],
+      [{ model: { kind: 'walk' } }, 'bad_least_cost'],
+      [{ end: { row: 20, col: 12 }, steps: '4'.repeat(7) }, 'too_close'],
+      [{ end: { row: 20, col: 40 } }, 'bad_least_cost'],
+      // West off the edge from column 0 would land on the row above: refused, not wrapped.
+      [{ model: { kind: 'tobler' }, start: { row: 20, col: 0 }, end: { row: 19, col: 39 }, steps: '3' }, 'bad_least_cost'],
+      // The slope model can't cross the edge cells, which have no slope.
+      [{ start: { row: 0, col: 5 }, end: { row: 0, col: 35 } }, 'blocked'],
+      [{ area: { id: 'kazbegi', version: 1 } }, 'no_area'],
+    ];
+    for (const [over, code] of bad) {
+      const res = await game(over);
+      expect(res.status, JSON.stringify(over)).toBe(400);
+      expect(((await res.json()) as { error: string }).error, JSON.stringify(over)).toBe(code);
+    }
+  });
+
+  it('students get A, B and the model, not the route; the score is the best cost over theirs', async () => {
+    const { token } = (await (await game()).json()) as { token: string };
+    const joined = (await (await student('join', { token })).json()) as { settings: unknown };
+    expect(joined.settings).toEqual({ area, model: slope, start, end });
+    const detour = { row: 30, col: 20 };
+    const want = Math.round((100 * cost([start, end])) / cost([start, detour, end]));
+    expect(want).toBeLessThan(100);
+    const first = (await (await play(token, [[30, 20]])).json()) as Record<string, unknown>;
+    expect(first).toMatchObject({ ok: true, duplicate: false, score: want, steps: '4'.repeat(30) });
+    expect(first.best).toBeCloseTo(cost([start, end]), 9);
+    expect(await (await play(token, [])).json()).toMatchObject({ duplicate: true, score: want });
+    expect(await (await play(token, [], { participantId: 'route-player-02' })).json()).toMatchObject({ score: 100 });
+  });
+
+  it('refuses answers it cannot score', async () => {
+    const { token } = (await (await game()).json()) as { token: string };
+    for (const via of [[[40, 3]], [[1.5, 3]], 'x', Array.from({ length: 101 }, () => [10, 10]), [[0, 20]]]) {
+      expect((await play(token, via)).status, JSON.stringify(via).slice(0, 40)).toBe(400);
+    }
+    expect((await play(token, [], { round: 1 })).status).toBe(400);
+  });
+
+  it('survives backup and restore, scored again from the heights; a stored best cost changes nothing', async () => {
+    const { session, token } = (await (await game()).json()) as { session: { id: string }; token: string };
+    await play(token, [[30, 20]]);
+    const file = (await (await call('GET', `backup?session=${session.id}`)).json()) as {
+      sessions: { settings: { best: number; steps: string } }[];
+      responses: { score: number }[];
+    };
+    const was = file.responses[0].score;
+    file.responses[0].score = 100;
+    file.sessions[0].settings.best = 1e9;
+    await call('DELETE', `sessions/${session.id}`);
+    const broken = structuredClone(file);
+    broken.sessions[0].settings.steps = '4'.repeat(29);
+    expect((await call('POST', 'restore', broken)).status).toBe(400);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    const rows = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { responses: { score: number }[] };
+    expect(rows.responses[0].score).toBe(was);
   });
 });

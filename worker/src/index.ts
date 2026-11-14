@@ -406,7 +406,7 @@ async function submitToModule(
     .first<{ n: number }>();
   if ((count?.n ?? 0) >= MAX_RESPONSES_PER_SESSION) throw new HttpError(429, 'session_full');
 
-  const scored = module.score(settings, answer, place, round);
+  const scored = await module.score(settings, answer, place, round, env);
   const insert = env.DB.prepare(
     `INSERT OR IGNORE INTO responses (id, session_id, participant_id, round, answer, lat, lon, distance_m, score, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1115,7 +1115,7 @@ async function restore(env: Env, request: Request, actor: Actor): Promise<Respon
       let scored: { round: number; distance: number | null; score: number | null };
       try {
         answer = module.validateAnswer(r.answer, session.settings!);
-        scored = module.score(session.settings!, answer, { lat: r.lat as number, lon: r.lon as number }, r.round);
+        scored = await module.score(session.settings!, answer, { lat: r.lat as number, lon: r.lon as number }, r.round, env);
       } catch {
         throw new HttpError(400, 'bad_backup');
       }
