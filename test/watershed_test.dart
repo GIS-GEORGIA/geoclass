@@ -187,4 +187,56 @@ void main() {
       expect((cells - area).abs() / area, lessThan(2e-4));
     });
   });
+
+  group('level 2', () {
+    final paths = (jsonDecode(File('$dir/paths.json').readAsStringSync()) as Map<String, dynamic>)['paths'] as List;
+
+    test('a drop’s way down is GRASS r.drain’s along the same directions, cell for cell', () {
+      expect(paths, hasLength(6));
+      for (final p in paths.cast<Map<String, dynamic>>()) {
+        final (row, col) = ((p['start'] as List)[0] as int, (p['start'] as List)[1] as int);
+        final path = flowPath(flow, row, col);
+        final cells = [
+          for (final i in path) [i ~/ flow.width, i % flow.width],
+        ]..sort((a, b) => a[0] != b[0] ? a[0] - b[0] : a[1] - b[1]);
+        expect(cells, [for (final c in p['cells'] as List) (c as List).cast<int>()], reason: 'from $row, $col');
+        // In order: each cell drains into the next, the last out of the piece; water only gathers on the way.
+        expect(path.first, row * flow.width + col);
+        for (var k = 0; k + 1 < path.length; k++) {
+          expect(flow.downstream(path[k]), path[k + 1]);
+          expect(acc[path[k + 1]], greaterThan(acc[path[k]]));
+        }
+        expect(flow.downstream(path.last), -1);
+      }
+    });
+
+    test('the accumulation on a log scale: pale on the hills, dark on the rivers', () {
+      final px = accumulationPixels(acc);
+      expect(px.length, acc.length * 4);
+      var most = 0;
+      for (var i = 1; i < acc.length; i++) {
+        if (acc[i] > acc[most]) most = i;
+      }
+      final lone = Iterable.generate(acc.length).firstWhere((i) => acc[i] == 1);
+      expect(px.sublist(most * 4, most * 4 + 4), [0x0d, 0x47, 0xa1, 255]);
+      // Premultiplied: pale cyan (0xb3e5fc) at 40 of 255.
+      expect(px.sublist(lone * 4, lone * 4 + 4), [
+        (0xb3 * 40 / 255).round(),
+        (0xe5 * 40 / 255).round(),
+        (0xfc * 40 / 255).round(),
+        40,
+      ]);
+    });
+
+    test('the threshold slider is a log scale from 10 to 100 000 cells', () {
+      expect(thresholdAt(0), 10);
+      expect(thresholdAt(1), 100000);
+      expect(thresholdAt(0.5), 1000);
+      expect(thresholdPosition(1000), closeTo(0.5, 1e-12));
+      expect(thresholdPosition(3), 0);
+      for (final c in [10, 200, 1112, 54321]) {
+        expect(thresholdAt(thresholdPosition(c)), c);
+      }
+    });
+  });
 }

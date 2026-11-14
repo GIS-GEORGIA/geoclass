@@ -340,3 +340,46 @@ double cellsArea(ElevationGrid g, int cells, LatLng at) {
   final k = utmScale(at.latitude, at.longitude, g.meta.zone);
   return cells * g.cell * g.cell / (k * k);
 }
+
+/// The way a drop of water takes from cell [row], [col]: the cells from there down the D8 directions, in order,
+/// until the water leaves the area. As GRASS r.drain -d follows r.watershed's directions
+/// (test/watershed_test.dart checks the cells against it). Never longer than the grid has cells.
+List<int> flowPath(FlowGrid f, int row, int col) {
+  final out = <int>[];
+  final n = f.width * f.height;
+  var i = row * f.width + col;
+  while (i >= 0 && out.length < n) {
+    out.add(i);
+    i = f.downstream(i);
+  }
+  return out;
+}
+
+/// The flow accumulation on a log scale, as RGBA pixels: cells with one or a few upstream cells pale and
+/// see-through, the rivers dark blue. Log, because the rivers carry thousands of times more than the hillsides.
+/// Premultiplied by alpha, as the engine takes raw pixels; opaque streams need no such care.
+Uint8List accumulationPixels(Int32List acc) {
+  var most = 1;
+  for (final a in acc) {
+    if (a > most) most = a;
+  }
+  final top = math.log(most);
+  final rgba = Uint8List(acc.length * 4);
+  for (var i = 0; i < acc.length; i++) {
+    final t = top == 0 ? 0.0 : math.log(acc[i]) / top;
+    // From pale cyan (0xb3e5fc) to dark blue (0x0d47a1).
+    final alpha = 40 + 215 * t;
+    rgba[i * 4] = ((0xb3 + (0x0d - 0xb3) * t) * alpha / 255).round();
+    rgba[i * 4 + 1] = ((0xe5 + (0x47 - 0xe5) * t) * alpha / 255).round();
+    rgba[i * 4 + 2] = ((0xfc + (0xa1 - 0xfc) * t) * alpha / 255).round();
+    rgba[i * 4 + 3] = alpha.round();
+  }
+  return rgba;
+}
+
+/// The stream threshold slider: a position from 0 to 1 to upstream cells, on a log scale from [low] to
+/// [high] cells, and back.
+int thresholdAt(double t, {int low = 10, int high = 100000}) =>
+    (low * math.pow(high / low, t.clamp(0, 1))).round();
+double thresholdPosition(int cells, {int low = 10, int high = 100000}) =>
+    (math.log(cells.clamp(low, high) / low) / math.log(high / low)).toDouble();

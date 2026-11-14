@@ -209,7 +209,7 @@ async function gunzip(body: ReadableStream): Promise<Uint8Array> {
 }
 
 /** The area's grid size and flow directions, from R2. A missing area or file is a 400: the teacher's app is out of date. */
-async function loadFlow(env: Env, area: { id: string; version: number }): Promise<{ width: number; height: number; flow: Uint8Array }> {
+export async function loadFlow(env: Env, area: { id: string; version: number }): Promise<{ width: number; height: number; flow: Uint8Array }> {
   const base = `areas/${area.id}/${area.version}`;
   const [metaObject, flowObject] = await Promise.all([env.AREAS.get(`${base}/area.json`), env.AREAS.get(`${base}/flow.u8.gz`)]);
   if (!metaObject || !flowObject) bad('no_flow');
@@ -220,7 +220,7 @@ async function loadFlow(env: Env, area: { id: string; version: number }): Promis
   return { width: meta.width as number, height: meta.height as number, flow };
 }
 
-async function makeSettings(raw: unknown, env: Env): Promise<WatershedSettings> {
+export async function makeSettings(raw: unknown, env: Env): Promise<WatershedSettings> {
   if (typeof raw !== 'object' || raw === null) bad();
   const r = raw as Record<string, unknown>;
   const area = readArea(r.area);
@@ -239,7 +239,7 @@ function checked(s: WatershedSettings): WatershedSettings {
 }
 
 /** Settings from a backup: the basin as it was stored, checked to be a well-formed one holding its outlet. */
-function restoreSettings(raw: unknown): WatershedSettings {
+export function restoreSettings(raw: unknown): WatershedSettings {
   if (typeof raw !== 'object' || raw === null) bad();
   const r = raw as Record<string, unknown>;
   const area = readArea(r.area);

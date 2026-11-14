@@ -5,6 +5,7 @@ import { viewshed } from './viewshed';
 import { watershed } from './watershed';
 import { leastCost } from './least_cost';
 import { thematic } from './thematic';
+import { hydro } from './hydro';
 import { travel } from './travel';
 import type { GameModule } from './types';
 
@@ -24,4 +25,4 @@ export function moduleIds(): string[] {
   return [...modules.keys()];
 }
 
-for (const module of [travel, aerial, profile, slope, viewshed, watershed, leastCost, thematic]) registerGame(module);
+for (const module of [travel, aerial, profile, slope, viewshed, watershed, leastCost, thematic, hydro]) registerGame(module);

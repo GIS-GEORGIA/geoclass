@@ -155,6 +155,8 @@ class _WatershedPlayState extends State<WatershedPlay> {
       if (reply != null) _take(reply);
     });
     await _save();
+    // Kept for level 2 of the same basin, which compares it with the delineated one.
+    await (await SharedPreferences.getInstance()).setString(drawingKey(_settings!), jsonEncode(polyToJson(_poly)));
   }
 
   void _edit(List<GridPoint> poly) {

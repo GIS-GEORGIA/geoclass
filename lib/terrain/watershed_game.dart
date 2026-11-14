@@ -46,6 +46,10 @@ class WatershedGameSettings {
   };
 }
 
+/// Where the student's level-1 drawing of a basin is kept on the device, for level 2 to compare with.
+String drawingKey(WatershedGameSettings s) =>
+    'shed_drawing_${s.areaId}_${s.areaVersion}_${s.outlet.row}_${s.outlet.col}';
+
 List<List<int>> runsFromJson(List raw) => [
   for (final r in raw) [for (final v in r as List) (v as num).toInt()],
 ];
@@ -219,7 +223,10 @@ class BasinComparison {
 class WatershedSetupPage extends StatefulWidget {
   final S s;
   final DemLoader? loader;
-  const WatershedSetupPage({super.key, required this.s, this.loader});
+
+  /// The game the session is for: 'watershed' (level 1) or 'hydro' (level 2), which share the settings.
+  final String game;
+  const WatershedSetupPage({super.key, required this.s, this.loader, this.game = 'watershed'});
 
   @override
   State<WatershedSetupPage> createState() => _WatershedSetupPageState();
@@ -256,13 +263,13 @@ class _WatershedSetupPageState extends State<WatershedSetupPage> {
   void _create() {
     final area = _area, outlet = _outlet;
     if (area == null || outlet == null || _problem != null) return;
-    Navigator.of(context).pop({'watershed': WatershedGameSettings(area.id, area.version, outlet).toJson()});
+    Navigator.of(context).pop({widget.game: WatershedGameSettings(area.id, area.version, outlet).toJson()});
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: Text(s['game_watershed']),
+      title: Text(s['game_${widget.game}']),
       actions: [
         Padding(
           padding: const EdgeInsets.only(right: 8),
@@ -395,7 +402,7 @@ class _WatershedSetupPageState extends State<WatershedSetupPage> {
           value: _showBasin,
           onChanged: (v) => setState(() => _showBasin = v),
         ),
-        Text(s['shed_scoring'], style: text.bodySmall),
+        Text(s[widget.game == 'hydro' ? 'hydro_scoring' : 'shed_scoring'], style: text.bodySmall),
       ],
     );
     return LayoutBuilder(

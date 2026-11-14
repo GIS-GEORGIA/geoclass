@@ -2168,6 +2168,80 @@ describe('watershed game', () => {
   });
 });
 
+describe('watershed level 2 game', () => {
+  // The level-1 test's area: water runs east or west to the middle column, and down it to the south.
+  const W = 30;
+  const flow = new Uint8Array(W * W);
+  for (let r = 0; r < W; r++) {
+    for (let c = 0; c < W; c++) {
+      flow[r * W + c] = r === 0 ? 1 : r === W - 1 ? 255 : c === 0 ? 3 : c === W - 1 ? 7 : c < 15 ? 7 : c > 15 ? 3 : 5;
+    }
+  }
+  const area = { id: 'hydro-test', version: 1 };
+  const basin = Array.from({ length: 20 }, (_, i) => [i + 1, 1, 29]);
+  beforeEach(async () => {
+    const gz = new Uint8Array(await new Response(new Blob([flow]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+    await env.AREAS.put('areas/hydro-test/1/area.json', JSON.stringify({ id: 'hydro-test', width: W, height: W }));
+    await env.AREAS.put('areas/hydro-test/1/flow.u8.gz', gz);
+  });
+  const game = (over: Record<string, unknown> = {}) =>
+    call('POST', 'sessions', { name: 'Lab', game: 'hydro', hydro: { area, outlet: { row: 20, col: 15 }, ...over } });
+  const play = (token: string, answer: unknown, participantId = 'hydro-player-01', over: Record<string, unknown> = {}) =>
+    student('submit', { token, submissionId: id('sub'), participantId, answer, lat: 42.2, lon: 42.7, round: 0, ...over });
+
+  it('the score is the overlap of the pour point’s basin with the outlet’s, worked out from R2', async () => {
+    const res = await game();
+    expect(res.status).toBe(201);
+    const { token, session } = (await res.json()) as { token: string; session: { id: string; settings: Record<string, unknown> } };
+    expect(session.settings).toMatchObject({ cells: 560, runs: basin });
+    const joined = (await (await student('join', { token })).json()) as { game: string; settings: unknown };
+    expect(joined).toMatchObject({ game: 'hydro', settings: { area, outlet: { row: 20, col: 15 } } });
+    // On the river, halfway up: rows 1 to 10, half the basin.
+    const half = await play(token, { pour: { row: 10, col: 15 }, threshold: 200 });
+    expect(await half.json()).toEqual({ ok: true, duplicate: false, score: 50, basin });
+    expect(await (await play(token, { pour: { row: 20, col: 15 }, threshold: 200 })).json()).toMatchObject({ duplicate: true, score: 50 });
+    // At the outlet, with a hand-drawn basin to compare: the drawing is kept, not scored.
+    const drawn = { pour: { row: 20, col: 15 }, threshold: 1000, poly: [[1, 1], [1, 15.123], [21, 15], [21, 1]] };
+    expect(await (await play(token, drawn, 'hydro-player-02')).json()).toMatchObject({ score: 100 });
+    // A cell off the river, beside the outlet: only the 14 cells west of it in its row drain there.
+    expect(await (await play(token, { pour: { row: 20, col: 14 }, threshold: 10 }, 'hydro-player-03')).json()).toMatchObject({ score: 3 });
+    const { responses } = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as {
+      responses: { participantId: string; answer: Record<string, unknown> }[];
+    };
+    expect(responses.find((r) => r.participantId === 'hydro-player-02')!.answer).toEqual({ ...drawn, poly: [[1, 1], [1, 15.12], [21, 15], [21, 1]] });
+  });
+
+  it('refuses answers it cannot score, and the level-1 checks still hold', async () => {
+    expect((await game({ outlet: { row: 5, col: 3 } })).status).toBe(400);
+    expect((await call('POST', 'sessions', { name: 'Lab', game: 'hydro', watershed: { area, outlet: { row: 20, col: 15 } } })).status).toBe(400);
+    const { token } = (await (await game()).json()) as { token: string };
+    for (const answer of [
+      null,
+      { threshold: 200 },
+      { pour: { row: 30, col: 15 }, threshold: 200 },
+      { pour: { row: 1.5, col: 15 }, threshold: 200 },
+      { pour: { row: 10, col: 15 } },
+      { pour: { row: 10, col: 15 }, threshold: 5 },
+      { pour: { row: 10, col: 15 }, threshold: 200, poly: [[1, 1], [1, 5]] },
+      { pour: { row: 10, col: 15 }, threshold: 200, poly: [[0, 0], [0, 4], [4, 0], [4, 4]] },
+    ]) {
+      expect((await play(token, answer)).status, JSON.stringify(answer)).toBe(400);
+    }
+    expect((await play(token, { pour: { row: 10, col: 15 }, threshold: 200 }, 'hydro-player-01', { round: 1 })).status).toBe(400);
+  });
+
+  it('survives backup and restore, scored again from R2', async () => {
+    const { session, token } = (await (await game()).json()) as { session: { id: string }; token: string };
+    await play(token, { pour: { row: 10, col: 15 }, threshold: 200 });
+    const file = (await (await call('GET', `backup?session=${session.id}`)).json()) as { responses: { score: number }[] };
+    file.responses[0].score = 100;
+    await call('DELETE', `sessions/${session.id}`);
+    expect((await call('POST', 'restore', file)).status).toBe(200);
+    const rows = (await (await call('GET', `sessions/${session.id}/responses`)).json()) as { responses: { score: number }[] };
+    expect(rows.responses[0].score).toBe(50);
+  });
+});
+
 describe('least-cost game', () => {
   // A 40 × 40 area rising evenly to the south, 3 m every 30 m: every cell costs the same, so the straight line
   // east from A to B is the best route, and a detour costs more.
