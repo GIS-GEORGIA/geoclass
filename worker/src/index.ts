@@ -23,6 +23,7 @@ import { KEEP_SEC, deleteOld, deleteOldAuthFailures, deleteOldTeachers } from '.
 import { gameModule } from './games/registry';
 import type { GameModule, Place, StoredAnswer } from './games/types';
 import { serveArea } from './areas';
+import { servePhoto, templatesRoute } from './templates';
 
 const MAX_RESPONSES_PER_SESSION = 2000;
 const MAX_BODY_BYTES = 8 * 1024;
@@ -718,7 +719,7 @@ async function createSession(env: Env, request: Request, actor: Actor): Promise<
   if (typeof body.game !== 'string' || !knownGame(body.game)) throw new HttpError(400, 'bad_game');
   const module = gameModule(body.game);
   const settings = module
-    ? await module.settings(body as Record<string, unknown>, env)
+    ? await module.settings(body as Record<string, unknown>, env, actor)
     : TASK_GAMES.includes(body.game)
     ? { tasks: validateTasks(body.game, body.tasks) }
     : body.game === 'cards'
@@ -1347,6 +1348,7 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
       if (method === 'DELETE') return resetResponses(env, id, actor);
     }
   }
+  if (resource === 'templates') return templatesRoute(env, request, url, parts, actor, json, readBody);
   if (resource === 'responses' && id && !child) {
     if (method === 'PATCH') return updateResponse(env, request, id, actor);
     if (method === 'DELETE') return deleteResponse(env, id, actor);
@@ -1360,6 +1362,7 @@ export default {
     try {
       const url = new URL(request.url);
       if (url.pathname.startsWith('/areas/')) return await serveArea(request, env, url);
+      if (url.pathname.startsWith('/photos/')) return await servePhoto(request, env, url);
       return await route(request, env, url);
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.key }, e.status);

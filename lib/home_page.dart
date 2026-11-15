@@ -282,7 +282,7 @@ class _SessionListState extends State<_SessionList> {
     Map<String, dynamic>? fields; // a game module's settings
     final module = gameModule(game);
     if (module != null) {
-      fields = await module.setup(context, s, widget.settings.lang);
+      fields = await module.setupWith(context, s, widget.settings.lang, _api);
       if (fields == null) return;
     } else if (game == 'layout') {
       layout = await Navigator.of(context).push<LayoutSpec>(MaterialPageRoute(

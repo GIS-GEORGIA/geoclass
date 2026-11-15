@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'aerial.dart';
+import 'emergency.dart';
 import 'least_cost.dart';
 import 'game.dart';
 import 'hydro.dart';
@@ -12,7 +13,7 @@ import 'viewshed.dart';
 import 'watershed.dart';
 
 final Map<String, GameModule> _modules = {
-  for (final g in const <GameModule>[TravelGame(), AerialGame(), ProfileGame(), SlopeGame(), ViewshedGame(), WatershedGame(), HydroGame(), LeastCostGame(), ThematicGame()]) g.id: g,
+  for (final g in const <GameModule>[TravelGame(), AerialGame(), ProfileGame(), SlopeGame(), ViewshedGame(), WatershedGame(), HydroGame(), LeastCostGame(), ThematicGame(), EmergencyGame()]) g.id: g,
 };
 
 /// Adds a game. A new game is one module and one line in the list above; tests add their own.
@@ -22,7 +23,7 @@ void registerGame(GameModule module) => _modules[module.id] = module;
 GameModule? gameModule(String id) => _modules[id];
 
 /// The games a teacher can pick from, in this order, then any other registered game.
-const _order = ['travel', 'coordinates', 'aerial', 'evidence', 'mapping', 'cards', 'plates', 'puzzle', 'layout', 'profile', 'slope', 'viewshed', 'watershed', 'hydro', 'least-cost', 'thematic'];
+const _order = ['travel', 'coordinates', 'aerial', 'evidence', 'mapping', 'cards', 'plates', 'puzzle', 'layout', 'profile', 'slope', 'viewshed', 'watershed', 'hydro', 'least-cost', 'thematic', 'emergency'];
 
 List<String> pickableGames() => [..._order, ..._modules.keys.where((id) => !_order.contains(id))];
 

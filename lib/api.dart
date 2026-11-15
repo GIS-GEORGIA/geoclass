@@ -65,6 +65,35 @@ class Api {
     return data;
   }
 
+  /// A call with no method of its own here (the templates, lib/emergency/emergency.dart).
+  Future<Map<String, dynamic>> request(String method, String path, [Object? body]) => _send(method, path, body);
+
+  /// Sends bytes as they are (a photo), not JSON.
+  Future<Map<String, dynamic>> sendBytes(String path, Uint8List bytes, String contentType) async {
+    final http.Response response;
+    try {
+      response = await _client
+          .post(
+            Uri.parse('$publicUrl/api/$path'),
+            headers: {'Content-Type': contentType, if (teacherKey != null) 'Authorization': 'Bearer $teacherKey'},
+            body: bytes,
+          )
+          .timeout(const Duration(seconds: 60));
+    } on TimeoutException {
+      throw NoConnection();
+    } on http.ClientException {
+      throw NoConnection();
+    }
+    Map<String, dynamic> data = const {};
+    try {
+      data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    } on FormatException {
+      if (response.statusCode < 400) throw ApiError(response.statusCode, 'internal');
+    }
+    if (response.statusCode >= 400) throw ApiError(response.statusCode, data['error'] as String? ?? 'internal');
+    return data;
+  }
+
   // Student
   Future<Map<String, dynamic>> join(String token) => _send('POST', 'join', {'token': token});
   Future<Map<String, dynamic>> submit(Map<String, dynamic> submission) => _send('POST', 'submit', submission);

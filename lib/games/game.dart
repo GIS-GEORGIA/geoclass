@@ -57,6 +57,9 @@ abstract class GameModule {
   /// The teacher's settings for a new session, sent with it to the server; null if the teacher cancelled.
   Future<Map<String, dynamic>?> setup(BuildContext context, S s, String lang);
 
+  /// The same, for a game whose setup talks to the server as the teacher (the 112 game's templates).
+  Future<Map<String, dynamic>?> setupWith(BuildContext context, S s, String lang, Api api) => setup(context, s, lang);
+
   /// The teacher's page for a running session.
   Widget teacherSession(Settings settings, SessionInfo session, {bool showQr = false});
 
