@@ -2,7 +2,7 @@
 // scenarios and photos). Kept in D1 (migrations/0013_templates.sql); the photos in R2 under
 // photos/<template id>/<photo id>.jpg, deleted with their template.
 //
-//   GET    /api/templates?game=emergency       the actor's templates (the owner's: all), without their data
+//   GET    /api/templates?game=emergency       the actor's templates (the 112 and time-lapse games) (the owner's: all), without their data
 //   GET    /api/templates/:id                  one template with its data
 //   POST   /api/templates                      { game, name, data } -> { template }
 //   PATCH  /api/templates/:id                  { name?, data? }
@@ -16,6 +16,7 @@
 
 import { HttpError } from './validate';
 import { readTemplateData } from './games/emergency';
+import { readTemplateData as readTimelapseData } from './games/timelapse';
 
 export type Owner = { admin: boolean; id: string | null };
 
@@ -28,7 +29,9 @@ const PHOTO_ID = /^[0-9a-f]{16}$/;
 const PHOTO_PATH = /^\/photos\/([0-9a-f-]{36})\/([0-9a-f]{16})\.jpg$/;
 
 /** The games that have templates, and how each checks a template's data as saved. */
-const READERS: Record<string, (raw: unknown) => unknown> = { emergency: readTemplateData };
+const READERS: Record<string, (raw: unknown) => unknown> = { emergency: readTemplateData, timelapse: (raw) => readTimelapseData(raw) };
+/** A new template's data when none is sent; a game without one needs its data from the start (the site). */
+const EMPTY: Record<string, unknown> = { emergency: { points: [] } };
 
 type TemplateRow = { id: string; teacher_id: string | null; game: string; name: string; data: string; created_at: number; updated_at: number };
 
@@ -120,7 +123,7 @@ export async function templatesRoute(
       const body = await readBody<{ game?: unknown; name?: unknown; data?: unknown }>(request, MAX_TEMPLATE_BYTES + 1024);
       if (typeof body.game !== 'string' || !Object.hasOwn(READERS, body.game)) throw new HttpError(400, 'bad_game');
       const name = cleanName(body.name);
-      const data = cleanData(body.game, body.data ?? { points: [] });
+      const data = cleanData(body.game, body.data ?? EMPTY[body.game]);
       const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM templates WHERE teacher_id IS ?').bind(owner.id).first<{ n: number }>();
       if ((count?.n ?? 0) >= MAX_TEMPLATES_PER_TEACHER) throw new HttpError(409, 'too_many_templates');
       const now = nowSec();

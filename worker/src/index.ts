@@ -23,6 +23,7 @@ import { KEEP_SEC, deleteOld, deleteOldAuthFailures, deleteOldTeachers } from '.
 import { gameModule } from './games/registry';
 import type { GameModule, Place, StoredAnswer } from './games/types';
 import { serveArea } from './areas';
+import { serveTimelapse } from './timelapse';
 import { servePhoto, templatesRoute } from './templates';
 
 const MAX_RESPONSES_PER_SESSION = 2000;
@@ -1363,6 +1364,7 @@ export default {
       const url = new URL(request.url);
       if (url.pathname.startsWith('/areas/')) return await serveArea(request, env, url);
       if (url.pathname.startsWith('/photos/')) return await servePhoto(request, env, url);
+      if (url.pathname.startsWith('/timelapse/')) return await serveTimelapse(request, env, url);
       return await route(request, env, url);
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.key }, e.status);

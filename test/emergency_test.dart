@@ -136,9 +136,10 @@ void main() {
     }
   });
 
-  test('the game is registered and pickable, last', () {
+  test('the game is registered and pickable, after the thematic map', () {
     expect(gameModule('emergency'), isA<EmergencyGame>());
-    expect(pickableGames().last, 'emergency');
+    final games = pickableGames();
+    expect(games.indexOf('emergency'), games.indexOf('thematic') + 1);
   });
 
   group('student', () {

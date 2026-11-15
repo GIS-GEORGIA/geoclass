@@ -8,6 +8,7 @@ import { thematic } from './thematic';
 import { hydro } from './hydro';
 import { travel } from './travel';
 import { emergency } from './emergency';
+import { timelapse } from './timelapse';
 import type { GameModule } from './types';
 
 const modules = new Map<string, GameModule>();
@@ -26,4 +27,4 @@ export function moduleIds(): string[] {
   return [...modules.keys()];
 }
 
-for (const module of [travel, aerial, profile, slope, viewshed, watershed, leastCost, thematic, hydro, emergency]) registerGame(module);
+for (const module of [travel, aerial, profile, slope, viewshed, watershed, leastCost, thematic, hydro, emergency, timelapse]) registerGame(module);

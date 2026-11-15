@@ -1,0 +1,58 @@
+[
+  {
+    "id": "chiatura",
+    "version": 1,
+    "ka": "ჭიათურა: მანგანუმის კარიერები",
+    "en": "Chiatura: manganese pits",
+    "kind": "mine",
+    "bbox": [
+      43.22,
+      42.26,
+      43.36,
+      42.34
+    ],
+    "cell": 10
+  },
+  {
+    "id": "madneuli",
+    "version": 1,
+    "ka": "კაზრეთი: მადნეულის კარიერი",
+    "en": "Kazreti: the Madneuli pit",
+    "kind": "mine",
+    "bbox": [
+      44.37,
+      41.34,
+      44.49,
+      41.42
+    ],
+    "cell": 10
+  },
+  {
+    "id": "chorokhi-batumi",
+    "version": 1,
+    "ka": "ჭოროხის დელტა და ბათუმი",
+    "en": "The Chorokhi delta and Batumi",
+    "kind": "coast",
+    "bbox": [
+      41.55,
+      41.57,
+      41.68,
+      41.67
+    ],
+    "cell": 10
+  },
+  {
+    "id": "tbilisi",
+    "version": 1,
+    "ka": "თბილისი: ქალაქის ზრდა",
+    "en": "Tbilisi: the city's growth",
+    "kind": "city",
+    "bbox": [
+      44.68,
+      41.65,
+      44.98,
+      41.82
+    ],
+    "cell": 20
+  }
+]
