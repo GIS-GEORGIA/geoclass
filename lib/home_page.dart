@@ -20,6 +20,9 @@ import 'coordinates_setup_page.dart';
 import 'l10n.dart';
 import 'models.dart';
 import 'session_page.dart';
+import 'sessions/create_session_page.dart';
+import 'sessions/session_filters.dart';
+import 'sessions/session_widgets.dart';
 import 'settings.dart';
 import 'settings_page.dart';
 
@@ -176,8 +179,11 @@ class _SessionListState extends State<_SessionList> {
   late final _api = Api(teacherKey: widget.settings.teacherKey);
   List<SessionInfo>? _sessions;
   String? _error;
-  String _query = '';
-  bool _showArchived = false;
+  var _filter = const SessionFilter();
+  final _search = TextEditingController();
+
+  /// A session being made: a second click on Create while the first is on its way does nothing.
+  bool _creating = false;
 
   S get s => widget.settings.s;
 
@@ -185,6 +191,65 @@ class _SessionListState extends State<_SessionList> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  void _say(String text) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+
+  Future<void> _action(SessionInfo x, SessionAction a) async {
+    switch (a) {
+      case SessionAction.open:
+        return _open(x);
+      case SessionAction.qr:
+        return _open(x, showQr: true);
+      case SessionAction.delete:
+        return _delete(x);
+    }
+  }
+
+  /// Deletes a session after asking, naming it. The server deletes only the teacher's own (the owner's: any);
+  /// its answers go with it.
+  Future<void> _delete(SessionInfo x) async {
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(s['delete_session']),
+        content: Text(s.f('delete_confirm', [x.name, x.responses ?? 0])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(s['cancel'])),
+          FilledButton(
+            key: const Key('session_delete_confirm'),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(s['delete']),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !mounted) return;
+    try {
+      await _api.deleteSession(x.id);
+      if (!mounted) return;
+      setState(() => _sessions = [...?_sessions]..removeWhere((y) => y.id == x.id));
+      _say(s.f('session_deleted', [x.name]));
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      if (e.status == 404) {
+        // Gone already, or not this teacher's: either way it isn't theirs to see.
+        setState(() => _sessions = [...?_sessions]..removeWhere((y) => y.id == x.id));
+      }
+      _say(s.f('failed', [s[e.key]]));
+    } on Exception {
+      if (mounted) _say(s.f('failed', [s['no_connection']]));
+    }
   }
 
   Future<void> _load() async {
@@ -215,62 +280,17 @@ class _SessionListState extends State<_SessionList> {
   }
 
   Future<void> _create() async {
-    final ctl = TextEditingController();
-    var game = 'travel';
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialog) => AlertDialog(
-          // The list of games is longer than a small window or a phone held sideways.
-          scrollable: true,
-          title: Text(s['new_session']),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(s['game_choose'], style: Theme.of(ctx).textTheme.titleSmall),
-              const SizedBox(height: 8),
-              RadioGroup<String>(
-                groupValue: game,
-                onChanged: (v) => setDialog(() => game = v!),
-                child: Column(
-                  children: [
-                    for (final g in pickableGames())
-                      RadioListTile<String>(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        value: g,
-                        title: Text(gameModule(g)?.title(s) ?? s['game_$g']),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: ctl,
-                autofocus: true,
-                maxLength: 100,
-                decoration: InputDecoration(
-                  labelText: s['session_name'],
-                  hintText: s['session_name_hint'],
-                  border: const OutlineInputBorder(),
-                ),
-                onSubmitted: (v) => Navigator.pop(ctx, v),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s['cancel'])),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, ctl.text),
-              child: Text((gameModule(game)?.hasSetup ?? game != 'mapping') ? s['next'] : s['create']),
-            ),
-          ],
-        ),
-      ),
+    if (_creating) return;
+    final counts = <String, int>{};
+    for (final x in _sessions ?? const <SessionInfo>[]) {
+      if (x.teacherName == null) counts[x.game] = (counts[x.game] ?? 0) + 1;
+    }
+    final picked = await Navigator.of(context).push<(String, String)>(
+      MaterialPageRoute(builder: (_) => CreateSessionPage(s: s, counts: counts)),
     );
-    ctl.dispose();
-    if (name == null || name.trim().isEmpty || !mounted) return;
+    if (picked == null || !mounted) return;
+    final (game, name) = picked;
+    if (!validSessionName(name)) return;
 
     List<CoordTask>? tasks;
     Deck? deck;
@@ -317,6 +337,8 @@ class _SessionListState extends State<_SessionList> {
       ));
       if (tasks == null) return;
     }
+    if (_creating || !mounted) return;
+    setState(() => _creating = true);
     try {
       final (session, token) = await _api.createSession(
         name.trim(),
@@ -331,20 +353,95 @@ class _SessionListState extends State<_SessionList> {
         fields: fields,
       );
       await widget.settings.setToken(session.id, token);
+      if (mounted) setState(() => _creating = false);
       await _open(session, showQr: true);
     } on Exception catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s.f('failed', [e is ApiError ? s[e.key] : s['no_connection']]))));
-      }
+      if (mounted) _say(s.f('failed', [e is ApiError ? s[e.key] : s['no_connection']]));
+    } finally {
+      if (mounted && _creating) setState(() => _creating = false);
     }
+  }
+
+  Widget _grid(List<SessionInfo> all) {
+    final visible = filterSessions(all, _filter);
+    return LayoutBuilder(
+      builder: (context, box) {
+        final columns = box.maxWidth >= 1100 ? 3 : (box.maxWidth >= 620 ? 2 : 1);
+        return RefreshIndicator(
+          onRefresh: _load,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                sliver: SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SessionToolbar(
+                        s: s,
+                        filter: _filter,
+                        creators: creators(all),
+                        search: _search,
+                        onChanged: (f) => setState(() => _filter = f),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${s.f('sessions_shown', [visible.length, all.where((x) => _filter.archived || !x.archived).length])} · ${s['keep_note']}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (visible.isEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      children: [
+                        Text(all.isEmpty ? s['no_sessions'] : s['no_match'], textAlign: TextAlign.center),
+                        if (all.isNotEmpty && _filter.isFiltered)
+                          TextButton(
+                            onPressed: () => setState(() {
+                              _search.clear();
+                              _filter = _filter.reset();
+                            }),
+                            child: Text(s['filter_reset']),
+                          ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+                  sliver: SliverGrid(
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: columns,
+                      mainAxisExtent: sessionCardHeight,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) => SessionCard(
+                        s: s,
+                        session: visible[i],
+                        onAction: (a) => _action(visible[i], a),
+                      ),
+                      childCount: visible.length,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final q = _query.trim().toLowerCase();
-    final visible = (_sessions ?? const <SessionInfo>[])
-        .where((x) => (_showArchived || !x.archived) && x.name.toLowerCase().contains(q))
-        .toList();
     return Scaffold(
       appBar: AppBar(
         title: Text(s['sessions']),
@@ -356,10 +453,10 @@ class _SessionListState extends State<_SessionList> {
           ),
           IconButton(
             tooltip: s['show_archived'],
-            isSelected: _showArchived,
+            isSelected: _filter.archived,
             icon: const Icon(Icons.inventory_2_outlined),
             selectedIcon: const Icon(Icons.inventory_2),
-            onPressed: () => setState(() => _showArchived = !_showArchived),
+            onPressed: () => setState(() => _filter = _filter.copyWith(archived: !_filter.archived)),
           ),
           PrivacyInfoButton(s: s),
           IconButton(
@@ -372,13 +469,16 @@ class _SessionListState extends State<_SessionList> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _create,
-        icon: const Icon(Icons.add),
+        key: const Key('new_session'),
+        onPressed: _creating ? null : _create,
+        icon: _creating
+            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+            : const Icon(Icons.add),
         label: Text(s['new_session']),
       ),
       body: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 760),
+          constraints: const BoxConstraints(maxWidth: 1280),
           child: _error != null && _sessions == null
               ? Column(
                   mainAxisSize: MainAxisSize.min,
@@ -389,52 +489,8 @@ class _SessionListState extends State<_SessionList> {
                   ],
                 )
               : _sessions == null
-                  ? const CircularProgressIndicator()
-                  : RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
-                        children: [
-                          TextField(
-                            decoration: InputDecoration(
-                              labelText: s['search_sessions'],
-                              prefixIcon: const Icon(Icons.search),
-                              border: const OutlineInputBorder(),
-                            ),
-                            onChanged: (v) => setState(() => _query = v),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(s['keep_note'], style: Theme.of(context).textTheme.bodySmall),
-                          ),
-                          const SizedBox(height: 12),
-                          if (visible.isEmpty)
-                            Padding(
-                              padding: const EdgeInsets.all(32),
-                              child: Text(
-                                _sessions!.isEmpty ? s['no_sessions'] : s['no_match'],
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          for (final x in visible)
-                            Card(
-                              child: ListTile(
-                                leading: Icon(gameIcon(x.game)),
-                                title: Text(x.name),
-                                subtitle: Text([
-                                  if (x.teacherName != null) s.f('session_by', [x.teacherName!]),
-                                  gameModule(x.game)?.title(s) ?? s['game_${x.game}'],
-                                  s['status_${x.status}'],
-                                  s.f('answers_count', [x.responses ?? 0]),
-                                  if (x.archived) s['archived'],
-                                ].join(' · ')),
-                                trailing: const Icon(Icons.chevron_right),
-                                onTap: () => _open(x),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
+              ? const CircularProgressIndicator()
+              : _grid(_sessions!),
         ),
       ),
     );

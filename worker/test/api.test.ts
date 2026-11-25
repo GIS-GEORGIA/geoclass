@@ -151,6 +151,14 @@ describe('sessions', () => {
   it('rejects an unknown game and an empty name', async () => {
     expect((await call('POST', 'sessions', { name: 'x', game: 'chess' })).status).toBe(400);
     expect((await call('POST', 'sessions', { name: ' ', game: 'travel' })).status).toBe(400);
+    for (const name of ['', '   \n\t', 'x'.repeat(101)]) {
+      const res = await call('POST', 'sessions', { name, game: 'travel' });
+      expect(res.status, JSON.stringify(name)).toBe(400);
+      expect(await res.json()).toEqual({ error: 'bad_name' });
+    }
+    expect((await call('POST', 'sessions', { name: 'x'.repeat(100), game: 'travel' })).status).toBe(201);
+    const { results } = await env.DB.prepare('SELECT name FROM sessions').all<{ name: string }>();
+    expect(results.map((r) => r.name)).toEqual(['x'.repeat(100)]);
   });
 
   it('a new QR token invalidates the old one', async () => {
@@ -1433,6 +1441,18 @@ describe('teacher accounts', () => {
     expect((await t.post(`sessions/${mine.session.id}/token`)).status).toBe(200);
     // The owner can work in a teacher's session too.
     expect((await call('PATCH', `sessions/${mine.session.id}`, { status: 'open' })).status).toBe(200);
+  });
+
+  it("the owner deletes a teacher's session, with its answers; the teacher can't delete it again", async () => {
+    const { auth: tAuth } = await newTeacher();
+    const made = (await (await as(tAuth).post('sessions', { name: 'VII b', game: 'travel' })).json()) as { session: { id: string }; token: string };
+    expect((await send(made.token)).status).toBe(201);
+    expect((await call('DELETE', `sessions/${made.session.id}`)).status).toBe(200);
+    expect((await as(tAuth).del(`sessions/${made.session.id}`)).status).toBe(404);
+    expect((await as(tAuth).get('sessions')).ok).toBe(true);
+    const left = await env.DB.prepare('SELECT COUNT(*) AS n FROM responses WHERE session_id = ?').bind(made.session.id).first<{ n: number }>();
+    expect(left?.n).toBe(0);
+    expect((await call('DELETE', `sessions/${made.session.id}`)).status).toBe(404);
   });
 
   it("a teacher can't hide or delete an answer in someone else's session", async () => {
