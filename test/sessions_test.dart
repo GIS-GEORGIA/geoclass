@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geoclass/games/registry.dart';
 import 'package:geoclass/l10n.dart';
@@ -179,6 +180,32 @@ void main() {
       await t.tap(find.byKey(const Key('create_submit')));
       await t.pumpAndSettle();
       expect(results, [(game, '${names[1]} B')]);
+    });
+
+    testWidgets('on a phone the games are one column, so their names are not cut', (t) async {
+      await open(t);
+      await t.binding.setSurfaceSize(null);
+      t.view.physicalSize = const Size(400, 900);
+      await t.pumpAndSettle();
+      final first = t.getRect(find.byKey(Key('create_game_${pickableGames()[0]}')));
+      final second = t.getRect(find.byKey(Key('create_game_${pickableGames()[1]}')));
+      expect(first.width, greaterThan(300));
+      expect(second.top, greaterThan(first.bottom));
+      expect(t.takeException(), isNull);
+
+      // Picking a game far up the long list brings the naming part into view.
+      await t.tap(find.byKey(Key('create_game_${pickableGames()[0]}')));
+      await t.pumpAndSettle();
+      final name = t.getRect(find.byKey(const Key('create_name')));
+      expect(name.bottom, lessThanOrEqualTo(900));
+      expect(name.top, greaterThanOrEqualTo(0));
+      // Long suggestions wrap instead of being cut at the edge.
+      for (var i = 0; i < 6; i++) {
+        final box = find.byKey(Key('create_suggestion_$i'));
+        expect(t.getRect(box).right, lessThanOrEqualTo(400));
+        final text = t.renderObject<RenderParagraph>(find.descendant(of: box, matching: find.byType(RichText)));
+        expect(text.didExceedMaxLines, isFalse);
+      }
     });
 
     testWidgets('cancel returns nothing', (t) async {

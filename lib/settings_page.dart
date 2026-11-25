@@ -116,6 +116,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                   _title(s['theme']),
                   SegmentedButton<ThemeMode>(
+                    // The tick takes room the three words need on a phone; the filled segment shows the choice.
+                    showSelectedIcon: false,
                     segments: [
                       ButtonSegment(value: ThemeMode.system, label: Text(s['theme_system'])),
                       ButtonSegment(value: ThemeMode.light, label: Text(s['theme_light'])),

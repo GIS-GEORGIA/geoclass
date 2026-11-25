@@ -68,6 +68,13 @@ void main() {
     test('finds the token in a link opened by Android', () {
       expect(joinToken('/#/join/abc_DEF-123'), 'abc_DEF-123');
     });
+    test('finds the token in the whole link Android can start the app with', () {
+      expect(joinToken('https://geoclass.qgis.ge/#/join/abc_DEF-123'), 'abc_DEF-123');
+      expect(joinToken('https://geoclass.qgis.ge#/join/abc_DEF-123'), 'abc_DEF-123');
+      expect(joinToken('https://geoclass.qgis.ge/'), isNull);
+      expect(joinToken('https://geoclass.qgis.ge/#/join/a/b'), isNull);
+      expect(isAreasRoute('https://geoclass.qgis.ge/#/areas'), isTrue);
+    });
     test('ignores other routes', () {
       expect(joinToken('/'), isNull);
       expect(joinToken(null), isNull);

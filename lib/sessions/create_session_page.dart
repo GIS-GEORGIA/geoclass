@@ -58,11 +58,13 @@ class _CreateSessionPageState extends State<CreateSessionPage> {
 
   Widget _gameGrid() {
     final scheme = Theme.of(context).colorScheme;
+    // On a phone two tiles side by side cut the longer Georgian titles in the middle of a word: one column there.
+    final oneColumn = MediaQuery.sizeOf(context).width < 520;
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 240,
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: oneColumn ? 520 : 240,
         mainAxisExtent: 64,
         crossAxisSpacing: 8,
         mainAxisSpacing: 8,
@@ -135,11 +137,22 @@ class _CreateSessionPageState extends State<CreateSessionPage> {
           runSpacing: 6,
           children: [
             for (final (i, n) in suggestedNames(s, gameTitle(s, game), widget.counts[game] ?? 0).indexed)
-              ActionChip(
-                key: Key('create_suggestion_$i'),
-                label: Text(n),
-                visualDensity: VisualDensity.compact,
-                onPressed: () => _suggest(n),
+              // Not an ActionChip: a chip keeps its label to one line (two only sometimes), and a long game title
+              // would hide the part of the name that differs.
+              Material(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(color: theme.colorScheme.outlineVariant),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  key: Key('create_suggestion_$i'),
+                  onTap: () => _suggest(n),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    child: Text(n, style: theme.textTheme.bodyMedium),
+                  ),
+                ),
               ),
           ],
         ),
@@ -225,7 +238,14 @@ class _CreateSessionPageState extends State<CreateSessionPage> {
               ),
             );
           }
-          return ListView(padding: const EdgeInsets.all(16), children: [grid, const SizedBox(height: 24), naming]);
+          // Not a lazy ListView: the naming part must exist, far under the games, for _pick to scroll to it.
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [grid, const SizedBox(height: 24), naming],
+            ),
+          );
         },
       ),
     );

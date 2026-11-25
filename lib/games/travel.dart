@@ -125,8 +125,11 @@ class _TravelPlayState extends State<TravelPlay> {
       _searched = false;
       _searchCtl.clear();
     });
-    _map.move(_point!, 9);
     FocusScope.of(context).unfocus();
+    // After the results are gone and the map has its place again.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _point != null) _map.move(_point!, 9);
+    });
   }
 
   Future<void> _tapMap(LatLng point) async {
@@ -212,99 +215,104 @@ class _TravelPlayState extends State<TravelPlay> {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 640),
-        child: ListView(
+        // Not a ListView: a lazy list throws the map away while the search results push it out of view, and the
+        // map built again later never loads its tiles after _choose moves it (seen on a phone, 2026-11-25).
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
-          children: [
-            Text(s['student_where'], style: text.headlineSmall),
-            const SizedBox(height: 4),
-            Text(s['student_pin_hint'], style: text.bodyMedium),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _searchCtl,
-              decoration: InputDecoration(
-                labelText: s['search_place'],
-                prefixIcon: const Icon(Icons.search),
-                border: const OutlineInputBorder(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(s['student_where'], style: text.headlineSmall),
+              const SizedBox(height: 4),
+              Text(s['student_pin_hint'], style: text.bodyMedium),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _searchCtl,
+                decoration: InputDecoration(
+                  labelText: s['search_place'],
+                  prefixIcon: const Icon(Icons.search),
+                  border: const OutlineInputBorder(),
+                ),
+                onChanged: _search,
               ),
-              onChanged: _search,
-            ),
-            for (final p in _results)
-              ListTile(
-                dense: true,
-                leading: const Icon(Icons.place),
-                title: Text(p.label(_lang)),
-                subtitle: Text(_index?.countryName(p.country, _lang) ?? p.country),
-                onTap: () => _choose(p),
-              ),
-            if (_searched && _results.isEmpty)
-              Padding(padding: const EdgeInsets.all(8), child: Text(s['search_empty'])),
-            const SizedBox(height: 12),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: SizedBox(
-                height: 300,
-                child: FlutterMap(
-                  mapController: _map,
-                  options: MapOptions(
-                    initialCenter: const LatLng(30, 30),
-                    initialZoom: 2,
-                    minZoom: 2,
-                    onTap: (_, point) => _tapMap(point),
-                    interactionOptions: const InteractionOptions(flags: InteractiveFlag.all & ~InteractiveFlag.rotate),
+              for (final p in _results)
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.place),
+                  title: Text(p.label(_lang)),
+                  subtitle: Text(_index?.countryName(p.country, _lang) ?? p.country),
+                  onTap: () => _choose(p),
+                ),
+              if (_searched && _results.isEmpty)
+                Padding(padding: const EdgeInsets.all(8), child: Text(s['search_empty'])),
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(
+                  height: 300,
+                  child: FlutterMap(
+                    mapController: _map,
+                    options: MapOptions(
+                      initialCenter: const LatLng(30, 30),
+                      initialZoom: 2,
+                      minZoom: 2,
+                      onTap: (_, point) => _tapMap(point),
+                      interactionOptions: const InteractionOptions(flags: InteractiveFlag.all & ~InteractiveFlag.rotate),
+                    ),
+                    children: [
+                      ...baseLayers(BaseMap.osm, 1),
+                      if (_point != null)
+                        MarkerLayer(
+                          markers: [
+                            Marker(
+                              point: _point!,
+                              width: 44,
+                              height: 44,
+                              alignment: Alignment.topCenter,
+                              child: Icon(Icons.location_pin, size: 44, color: Theme.of(context).colorScheme.error),
+                            ),
+                          ],
+                        ),
+                      ...mapFurniture(BaseMap.osm),
+                    ],
                   ),
-                  children: [
-                    ...baseLayers(BaseMap.osm, 1),
-                    if (_point != null)
-                      MarkerLayer(
-                        markers: [
-                          Marker(
-                            point: _point!,
-                            width: 44,
-                            height: 44,
-                            alignment: Alignment.topCenter,
-                            child: Icon(Icons.location_pin, size: 44, color: Theme.of(context).colorScheme.error),
-                          ),
-                        ],
-                      ),
-                    ...mapFurniture(BaseMap.osm),
-                  ],
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _placeCtl,
-              maxLength: 120,
-              decoration: InputDecoration(labelText: s['field_place'], border: const OutlineInputBorder()),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _reasonCtl,
-              maxLength: 500,
-              maxLines: 3,
-              decoration: InputDecoration(labelText: s['field_reason'], border: const OutlineInputBorder()),
-            ),
-            const SizedBox(height: 8),
-            Text(s['field_transport'], style: text.titleSmall),
-            const SizedBox(height: 8),
-            _chips(transports, 'transport', _transport, (v) => _transport = v),
-            const SizedBox(height: 16),
-            Text(s['field_company'], style: text.titleSmall),
-            const SizedBox(height: 8),
-            _chips(companies, 'company', _company, (v) => _company = v),
-            const SizedBox(height: 20),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(s[_error!], style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _placeCtl,
+                maxLength: 120,
+                decoration: InputDecoration(labelText: s['field_place'], border: const OutlineInputBorder()),
               ),
-            FilledButton.icon(
-              onPressed: _busy ? null : _submit,
-              icon: const Icon(Icons.send),
-              label: Padding(padding: const EdgeInsets.all(8), child: Text(s['submit'])),
-            ),
-            const SizedBox(height: 24),
-          ],
+              const SizedBox(height: 8),
+              TextField(
+                controller: _reasonCtl,
+                maxLength: 500,
+                maxLines: 3,
+                decoration: InputDecoration(labelText: s['field_reason'], border: const OutlineInputBorder()),
+              ),
+              const SizedBox(height: 8),
+              Text(s['field_transport'], style: text.titleSmall),
+              const SizedBox(height: 8),
+              _chips(transports, 'transport', _transport, (v) => _transport = v),
+              const SizedBox(height: 16),
+              Text(s['field_company'], style: text.titleSmall),
+              const SizedBox(height: 8),
+              _chips(companies, 'company', _company, (v) => _company = v),
+              const SizedBox(height: 20),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(s[_error!], style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                ),
+              FilledButton.icon(
+                onPressed: _busy ? null : _submit,
+                icon: const Icon(Icons.send),
+                label: Padding(padding: const EdgeInsets.all(8), child: Text(s['submit'])),
+              ),
+              const SizedBox(height: 24),
+            ],
+          ),
         ),
       ),
     );

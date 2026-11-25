@@ -19,12 +19,22 @@ ThemeData _theme(Brightness brightness) => ThemeData(
       fontFamily: 'NotoSansGeorgian',
     );
 
+/// A route name as the patterns below expect it. Android can start the app with the whole link of a QR code
+/// (`https://geoclass.qgis.ge/#/join/<token>`) as the first route, so a full URL is cut to its path and fragment.
+String? routePath(String? routeName) {
+  if (routeName == null || !routeName.startsWith(RegExp('https?://'))) return routeName;
+  final uri = Uri.tryParse(routeName);
+  if (uri == null) return routeName;
+  final path = uri.path.isEmpty ? '/' : uri.path;
+  return uri.hasFragment ? '$path#${uri.fragment}' : path;
+}
+
 /// Students arrive at `#/join/<token>`, everyone else gets the teacher side.
 String? joinToken(String? routeName) =>
-    RegExp(r'^/(?:#/)?join/([A-Za-z0-9_-]+)$').firstMatch(routeName ?? '')?.group(1);
+    RegExp(r'^/(?:#/)?join/([A-Za-z0-9_-]+)$').firstMatch(routePath(routeName) ?? '')?.group(1);
 
 /// The terrain areas preview: `#/areas`.
-bool isAreasRoute(String? routeName) => RegExp(r'^/(?:#/)?areas/?$').hasMatch(routeName ?? '');
+bool isAreasRoute(String? routeName) => RegExp(r'^/(?:#/)?areas/?$').hasMatch(routePath(routeName) ?? '');
 
 class App extends StatelessWidget {
   final Settings settings;
