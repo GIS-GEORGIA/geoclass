@@ -24,31 +24,61 @@ Upload `build/app/outputs/bundle/release/app-release.aab`. Raise the number afte
 
 > GeoClass საკლასო გეოგრაფიული თამაშების აპია. მასწავლებელი აჩვენებს QR კოდს, მოსწავლეები ტელეფონიდან ანონიმურად პასუხობენ და პასუხები პირდაპირ რუკაზე ჩნდება.
 >
-> თამაშები:
+> რუკა და კოორდინატები:
 > • სად გსურს მოგზაურობა? — მოსწავლეების არჩეული ადგილები ერთ რუკაზე.
 > • კოორდინატების თამაში — გეოგრაფიული (DD, DM, DMS) და მართკუთხა (UTM) კოორდინატები, ქულა და რეიტინგი.
+> • კოორდინატების დეტექტივი — ამოიკითხე კოორდინატები სასწავლო ჯარიმის ქვითრიდან ან ვიდეორეგისტრატორის კადრიდან, გადაიყვანე და იპოვე ადგილი.
+> • 112: ადგილის შეტყობინება — სავარჯიშო ზარი: ამოიკითხე შენი ადგილი რუკიდან საჭირო ფორმატში, თქვი, რა მოხდა, და აირჩიე ყველაზე გამოსადეგი ფოტო.
 > • გამოიცანი საჰაერო ფოტოდან — იპოვე ფოტოზე ნაჩვენები ადგილი რუკაზე.
-> • კოორდინატების დეტექტივი — ამოიკითხე კოორდინატები სასწავლო ჯარიმის ქვითრიდან ან ვიდეორეგისტრატორის კადრიდან, გადაიყვანე სხვა ფორმატში, იპოვე რუკაზე და დაასახელე ობიექტი.
-> • დახატე შენი უბანი — წერტილებით, ხაზებითა და პოლიგონებით დახატე რაც შეიძლება მეტი ობიექტი მასწავლებლის დათქმულ დროში.
-> • იპოვე ერთი და იგივე ადგილი — იპოვე რუკის ბარათების წყვილები, სხვადასხვა მასშტაბითა და მობრუნებული.
-> • ფერების წრეები — ნებაყოფლობითი თამაში: ფერადი წერტილებიდან ამოიცანი საქართველოს რეგიონი, მუნიციპალიტეტი, კონტინენტი ან ქვეყანა. წრეს მასწავლებელი ცვლის, მოსწავლეები მას ტელეფონზეც ხედავენ და პასუხს ერთად, ხმამაღლა ამბობენ. პასუხი არ იგზავნება.
+> • თანამგზავრული ქრონიკა — შეადარე ორი წლის თანამგზავრული სურათი და შემოხაზე, რა შეიცვალა.
+> • დახატე შენი უბანი — წერტილებით, ხაზებითა და პოლიგონებით დახატე რაც შეიძლება მეტი ობიექტი.
+> • იპოვე ერთი და იგივე ადგილი — რუკის ბარათების წყვილები, სხვადასხვა მასშტაბითა და მობრუნებული.
 >
-> მოსწავლეს არ სჭირდება ანგარიში, სახელი ან ელფოსტა. აპს აქვს ქართული და ინგლისური ენა, ღია და მუქი თემა. კოდი ღიაა: github.com/GIS-GEORGIA/geoclass
+> რელიეფი და წყალი (საქართველოს ციფრული რელიეფის მოდელზე):
+> • რელიეფის პროფილი — წაიკითხე ჭრილი: ყველაზე მაღალი და დაბალი წერტილი, სიგრძე, ციცაბო მონაკვეთი.
+> • ციცაბო ფერდობები — მონიშნე, სად არის ფერდობი არჩეულ კუთხეზე ციცაბო.
+> • ხილვადობა — გამოიცანი, რას დაინახავს დამკვირვებელი მწვერვალიდან ან კოშკიდან.
+> • წყალშემკრები აუზი — შემოხაზე მდინარის აუზი.
+> • აუზი DEM-იდან (Level 2) — ნაბიჯ-ნაბიჯ: დინების მიმართულება, დაგროვება, ჩამონადენის წერტილი.
+> • ყველაზე იოლი გზა — გაიყვანე ყველაზე ნაკლებად დამღლელი მარშრუტი მთაში.
+>
+> კარტოგრაფია:
+> • თემატური რუკა — მასწავლებლის მონაცემებით შეარჩიე კლასები და ფერები.
+> • რუკის გაფორმება — გააფორმე საქართველოს რუკა A4-ზე: სათაური, ლეგენდა, ჩრდილოეთის ისარი, მასშტაბი, ბადე და PDF.
+> • რუკის ფაზლი — ააწყე საქართველოს რეგიონები ან მუნიციპალიტეტები.
+> • ფერების წრეები — ნებაყოფლობითი თამაში: ფერადი წერტილებიდან ამოიცანი რეგიონი, კონტინენტი ან ქვეყანა. პასუხს მოსწავლეები ერთად, ხმამაღლა ამბობენ და არაფერი იგზავნება.
+>
+> მოსწავლეს არ სჭირდება ანგარიში, სახელი ან ელფოსტა, და აპი ტელეფონის მდებარეობას არ იყენებს. სესიები პასუხებიანად 6 თვეში იშლება. აპს აქვს ქართული და ინგლისური ენა, ღია და მუქი თემა. კოდი ღიაა: github.com/GIS-GEORGIA/geoclass
 
 **Full description (en):**
 
 > GeoClass runs geography games in the classroom. The teacher shows a QR code, students answer anonymously on their phones, and the answers appear live on a map.
 >
-> Games:
+> Maps and coordinates:
 > • Where would you travel? — everyone's chosen places on one map.
 > • Coordinates game — geographic (DD, DM, DMS) and rectangular (UTM) coordinates, with scores and a leaderboard.
+> • Coordinate detective — read the coordinates off a sample fine receipt or a dashcam frame, convert them and find the place.
+> • 112: reporting your location — a practice emergency call: read your place off the map in the format asked for, say what happened and pick the most useful photo.
 > • Guess from aerial photos — find the place in the photo on the map.
-> • Coordinate detective — read the coordinates off a sample fine receipt or a dashcam frame, convert them, find the place on the map and name it.
-> • Map your neighbourhood — draw as many places as you can with points, lines and polygons, within the time the teacher sets.
+> • Satellite time-lapse — compare satellite images from two years and outline what changed.
+> • Map your neighbourhood — draw as many places as you can with points, lines and polygons.
 > • Find the same place — match pairs of map cards shown at different scales and turned.
-> • Colour plates — a voluntary game: spot a region or municipality of Georgia, a continent or a country in coloured dots. The teacher moves the plates, students see them on their phones too and say the answer aloud together. No answer is sent.
 >
-> Students need no account, name or email. Georgian and English, light and dark themes. Open source: github.com/GIS-GEORGIA/geoclass
+> Terrain and water (on a digital elevation model of Georgia):
+> • Terrain profile — read a cross-section: highest and lowest point, length, steepest part.
+> • Steep slopes — mark where the ground is steeper than a chosen angle.
+> • What can be seen — guess what an observer on a summit or a tower can see.
+> • Drainage basin — outline a river's basin.
+> • Basin from the DEM (level 2) — step by step: flow direction, accumulation, pour point.
+> • The easiest way — plan the least tiring route through the mountains.
+>
+> Cartography:
+> • Thematic map — choose classes and colours for the teacher's data.
+> • Map layout — lay out a map of Georgia on A4: title, legend, north arrow, scale bar, grid, PDF.
+> • Map puzzle — put Georgia's regions or municipalities together.
+> • Colour plates — a voluntary game: spot a region, continent or country in coloured dots. Students say the answer aloud together, and nothing is sent.
+>
+> Students need no account, name or email, and the app does not use the phone's location. Sessions and their answers are deleted after six months. Georgian and English, light and dark themes. Open source: github.com/GIS-GEORGIA/geoclass
 
 **Category:** Education
 
@@ -62,7 +92,7 @@ These describe how the app works. The answers are the owner's to confirm.
 
 **Ads:** none.
 
-**App access:** teacher functions need the teacher key, so Play's reviewers need it under "App access". Students need no login, and a QR link works without one. Treat a key given to reviewers as shared, and replace it with `npm run key` in `worker/` if needed.
+**App access:** teacher functions need a teacher key, so Play's reviewers need one under "App access". Don't give them the owner key: make a teacher account for them in the app (Settings → Teachers, a month is enough) and turn it off after the review. Students need no login, and a QR link works without one.
 
 **Data safety:**
 
