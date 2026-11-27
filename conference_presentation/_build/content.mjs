@@ -28,7 +28,8 @@ export const T = {
     subtitle: 'Spatial thinking, map literacy and privacy by design in the school classroom',
     orgs: 'Georgian Geographical Society named after Alexander Javakhishvili · Ivane Javakhishvili Tbilisi State University',
     anniv: 'Dedicated to the 110th anniversary of the birth of Alexander Aslanikashvili',
-    speaker: '[Speaker name] · [Affiliation] · [e-mail]',
+    speaker: 'Giorgi Kapanadze',
+    aff: 'Associate Professor, Business and Technology University (BTU) · ORCID 0009-0006-4193-5939',
     illus: 'Conceptual illustration',
     tags: { impl: 'Implemented', rationale: 'Educational rationale', hyp: 'Hypothesis', plan: 'Planned' },
     games: {
@@ -233,7 +234,8 @@ I would like to finish with one thought, in the spirit of Alexander Aslanikashvi
     subtitle: 'სივრცითი აზროვნება, კარტოგრაფიული წიგნიერება და კონფიდენციალურობა დიზაინის ეტაპიდან სკოლის საკლასო ოთახში',
     orgs: 'ალექსანდრე ჯავახიშვილის სახელობის საქართველოს გეოგრაფიული საზოგადოება · ივანე ჯავახიშვილის სახელობის თბილისის სახელმწიფო უნივერსიტეტი',
     anniv: 'ეძღვნება ალექსანდრე ასლანიკაშვილის დაბადებიდან 110 წლისთავს',
-    speaker: '[მომხსენებლის სახელი] · [აფილიაცია] · [ელფოსტა]',
+    speaker: 'გიორგი კაპანაძე',
+    aff: 'ასოცირებული პროფესორი, ბიზნესისა და ტექნოლოგიების უნივერსიტეტი (BTU)\nORCID 0009-0006-4193-5939',
     illus: 'კონცეპტუალური ილუსტრაცია',
     tags: { impl: 'რეალიზებულია', rationale: 'პედაგოგიური დასაბუთება', hyp: 'ჰიპოთეზა', plan: 'დაგეგმილია' },
     games: {

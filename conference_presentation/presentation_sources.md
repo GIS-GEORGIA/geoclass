@@ -48,7 +48,7 @@ Nothing in the slides reports measured learning outcomes, user numbers, schools,
 
 | # | Main claim | Evidence | Status |
 |---|---|---|---|
-| 1 | Title, conference, organisers, anniversary | Conference details as given by the organisers; author left as a placeholder | — |
+| 1 | Title, conference, organisers, anniversary | Conference details as given by the organisers; speaker, affiliation and ORCID as in `CITATION.cff` and `README.md` § Citation | — |
 | 2 | Geography needs spatial thinking, map literacy, reasoning and digital competencies | NRC 2006; Vuorikari et al. 2022 (DigComp 2.2) | rationale |
 | 3 | GIS skills can be built step by step; each step maps to games | Bednarz 2004; Kerski 2003; Baker et al. 2015; game list from the repository | rationale + impl |
 | 4 | Session workflow and architecture | `README.md`; `worker/src/index.ts`; screenshots | impl |

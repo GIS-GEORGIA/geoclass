@@ -37,7 +37,7 @@ function build(lang) {
     if (k !== 'addSlide') { const v = t[k]; return typeof v === 'function' ? v.bind(t) : v; }
     return (...a) => { const sl = t.addSlide(...a); const orig = sl.addText.bind(sl); sl.addText = (c, o) => orig(splitRuns(c, o.fontFace, geo), o); return sl; };
   }, set(t, k, v) { t[k] = v; return true; } });
-  pptx.author = '[Speaker name]';
+  pptx.author = 'Giorgi Kapanadze';
   pptx.title = L.title;
   pptx.subject = L.confLine;
   const S = Object.fromEntries(L.s.map((x) => [x.key, x]));
@@ -78,9 +78,10 @@ function build(lang) {
     slide.addText(L.title, { x: M, y: 1.05, w: 7.9, h: 2.2, fontFace: HF, fontSize: lang === 'ka' ? 32 : 36, bold: true, color: C.white, margin: 0, valign: 'top' });
     slide.addShape('rect', { x: M, y: 3.45, w: 1.2, h: 0.07, fill: { color: C.accent }, line: { color: C.accent } });
     slide.addText(L.subtitle, { x: M, y: 3.7, w: 8.2, h: 0.9, fontFace: F, fontSize: 16, color: 'DCE6EF', margin: 0, valign: 'top' });
-    slide.addText(L.speaker, { x: M, y: 4.85, w: 8.2, h: 0.4, fontFace: F, fontSize: 15, bold: true, color: C.white, margin: 0 });
-    slide.addText(L.orgs, { x: M, y: 5.6, w: 8.2, h: 0.65, fontFace: F, fontSize: 11, color: 'A9C3DA', margin: 0, valign: 'top' });
-    slide.addText(L.anniv, { x: M, y: 6.35, w: 8.2, h: 0.4, fontFace: F, fontSize: 12, italic: true, color: 'E8C48F', margin: 0 });
+    slide.addText(L.speaker, { x: M, y: 4.7, w: 8.2, h: 0.4, fontFace: F, fontSize: 17, bold: true, color: C.white, margin: 0 });
+    slide.addText(L.aff, { x: M, y: 5.1, w: 8.2, h: 0.55, fontFace: F, fontSize: 11.5, valign: 'top', color: 'DCE6EF', margin: 0 });
+    slide.addText(L.orgs, { x: M, y: 5.75, w: 8.2, h: 0.65, fontFace: F, fontSize: 11, color: 'A9C3DA', margin: 0, valign: 'top' });
+    slide.addText(L.anniv, { x: M, y: 6.45, w: 8.2, h: 0.4, fontFace: F, fontSize: 12, italic: true, color: 'E8C48F', margin: 0 });
     slide.addImage({ path: A(`screens/${lang}_teacher_travel.png`), x: 8.75, y: 1.35, w: 4.2, h: 4.2 / desk });
     slide.addImage({ path: A(`screens/${lang}_st_travel.png`), x: 11.55, y: 2.75, w: 1.75, h: 1.75 / phone });
     slide.addText('geoclass.qgis.ge · doi.org/10.5281/zenodo.24144115', { x: 8.75, y: 6.75, w: 4.4, h: 0.3, fontFace: 'Noto Sans', fontSize: 9.5, color: 'A9C3DA', align: 'right', margin: 0 });
@@ -347,7 +348,8 @@ function build(lang) {
     slide.addText(s.title, { x: M, y: 1.0, w: 8, h: 1.0, fontFace: HF, fontSize: lang === 'ka' ? 36 : 40, bold: true, color: C.white, margin: 0 });
     slide.addText(s.lead, { x: M, y: 2.05, w: 8, h: 0.5, fontFace: F, fontSize: 18, color: 'E8C48F', margin: 0 });
     slide.addText(s.q.map((t, i) => ({ text: t, options: { bullet: { code: '25B8' }, breakLine: i < s.q.length - 1 } })), { x: M, y: 3.0, w: 7.6, h: 2.0, fontFace: F, fontSize: 17, color: 'DCE6EF', margin: 0, valign: 'top', paraSpaceAfter: 10 });
-    slide.addText(L.speaker, { x: M, y: 6.3, w: 8, h: 0.4, fontFace: F, fontSize: 14, bold: true, color: C.white, margin: 0 });
+    slide.addText(L.speaker, { x: M, y: 5.95, w: 8, h: 0.4, fontFace: F, fontSize: 15, bold: true, color: C.white, margin: 0 });
+    slide.addText(L.aff, { x: M, y: 6.35, w: 8.2, h: 0.55, fontFace: F, fontSize: 11, valign: 'top', color: 'A9C3DA', margin: 0 });
     [['generated/qr_repo.png', s.qr1, 'github.com/GIS-GEORGIA/geoclass'], ['generated/qr_doi.png', s.qr2, '10.5281/zenodo.24144115']].forEach(([img, cap, sub], i) => {
       const x = 8.9 + i * 2.1;
       slide.addShape('rect', { x: x - 0.08, y: 2.92, w: 1.86, h: 1.86, fill: { color: C.white }, line: { type: 'none' } });
@@ -364,7 +366,7 @@ function build(lang) {
 // Markdown companions
 function md(lang) {
   const L = T[lang];
-  const out = [`# ${L.title}`, '', `${L.subtitle}`, '', `${L.confLine}`, '', `${L.speaker}`, ''];
+  const out = [`# ${L.title}`, '', `${L.subtitle}`, '', `${L.confLine}`, '', `**${L.speaker}**, ${L.aff.replace("\n", " · ")}`, ''];
   const notes = [`# ${lang === 'ka' ? 'მომხსენებლის შენიშვნები' : 'Speaker notes'}: ${L.title}`, ''];
   let words = 0;
   L.s.forEach((s, i) => {

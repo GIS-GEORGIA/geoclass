@@ -4,7 +4,7 @@ Spatial thinking, map literacy and privacy by design in the school classroom
 
 Scientific conference “Modern Problems of Geography” · 19 December 2026
 
-[Speaker name] · [Affiliation] · [e-mail]
+**Giorgi Kapanadze**, Associate Professor, Business and Technology University (BTU) · ORCID 0009-0006-4193-5939
 
 ## 2. The educational challenge: beyond place names
 

@@ -14,10 +14,7 @@ This folder holds the talk for the scientific conference "Modern Problems of Geo
 
 ## Before the talk
 
-1. **Fill in the placeholders.** `[Speaker name] · [Affiliation] · [e-mail]` appears on slides 1 and 15.
-   - The easiest way is to edit `speaker` in `_build/content.mjs` and rebuild.
-   - You can also edit the `.pptx` directly. Rebuilding overwrites edits made only in the `.pptx`.
-   - `CITATION.cff` names the software's author, but the slides do not assume who will present.
+1. **Speaker.** Slides 1 and 15 name Giorgi Kapanadze, Associate Professor at BTU, with the ORCID (as in `CITATION.cff`). To change this, edit `speaker` and `aff` in `_build/content.mjs` and rebuild. Rebuilding overwrites edits made only in the `.pptx`.
 2. **Present from the PDF if you are not sure about the conference computer.** The `.pptx` uses Noto Sans, Noto Serif, Noto Sans Georgian and Noto Serif Georgian. If these fonts are missing, PowerPoint substitutes others and the Georgian layout may shift. All four are free (SIL OFL), and the Georgian ones are also in `assets/fonts/` of this repository.
 3. **Check the timing.**
    - English notes: about 1,670 words, roughly 12 minutes.
